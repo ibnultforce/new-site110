@@ -10,6 +10,13 @@
  * and is kept; navigation is removed wherever it is. Attributes other than
  * href, src, alt and table spans are dropped, which shrinks the prompt a lot
  * without losing anything the markdown can express.
+ *
+ * With { keepStyles: true } (--keep-styles) the same parts are cut away, but
+ * the rest keeps its structure and attributes (classes, ids, inline styles,
+ * SVG) so it can be shown as-is with the old page's CSS, and every class gets
+ * a prefix so the site's own classes and Tailwind utilities never match it.
+ * stylesheetsIn() lists the page's <style> blocks and linked stylesheets in
+ * cascade order, for scripts/lib/css-scope.js.
  */
 
 import fs from 'node:fs';
@@ -21,23 +28,40 @@ export const MAX_HTML_BYTES = 2 * 1024 * 1024;
 export const MAX_CLEAN_CHARS = 150000;
 
 const KEEP_ATTRIBUTES = new Set(['href', 'src', 'alt', 'title', 'colspan', 'rowspan']);
+// With keepStyles every other attribute stays (SVG needs its own), except these.
+const DROP_STYLED_ATTRIBUTE = /^(on\w+|data-[\w-]*|srcset|sizes|nonce|integrity|crossorigin|is|slot|contenteditable|jsaction|jsname|jscontroller)$/i;
 // Removed with everything inside them, wherever they are.
 const DROP_ELEMENTS = ['script', 'style', 'noscript', 'template', 'svg', 'canvas', 'object', 'head'];
+const DROP_STYLED_ELEMENTS = ['script', 'style', 'noscript', 'template', 'canvas', 'object', 'head'];
 // class/id tokens that mark site chrome outside the content.
 const CHROME_TOKEN = /^(?:(?:site|page|global|main|top|primary)[-_])?(header|footer|masthead|navbar|topbar|top-bar|sidebar|cookie[-_]?(?:banner|notice|consent)?)$/i;
+// A start tag, with attribute values that may contain ">".
+const START_TAG = /<([a-zA-Z][\w:-]*)\b((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/g;
 
-/** Reads an HTML file inside the repository. Throws a readable error otherwise. */
-export function readHtmlSource(relPath) {
+/** Reads a file of the given kind inside the repository. Throws a readable error otherwise. */
+function readSource(relPath, extension, kind) {
   const normalised = path.posix.normalize(String(relPath).replace(/\\/g, '/')).replace(/^\.\//, '');
   if (normalised.startsWith('../') || path.posix.isAbsolute(normalised) || /^[A-Za-z]:/.test(normalised)) {
-    throw new Error(`the HTML file must be inside the repository, not ${relPath}`);
+    throw new Error(`the ${kind} file must be inside the repository, not ${relPath}`);
   }
-  if (!/\.html?$/i.test(normalised)) throw new Error(`${relPath} isn't an .html file`);
+  if (!extension.test(normalised)) throw new Error(`${relPath} isn't a ${kind} file`);
   const absolute = path.join(ROOT, normalised);
   if (!fs.existsSync(absolute)) throw new Error(`${relPath} does not exist`);
   const size = fs.statSync(absolute).size;
   if (size > MAX_HTML_BYTES) throw new Error(`${relPath} is over ${MAX_HTML_BYTES / 1024 / 1024} MB`);
-  return { file: normalised, html: fs.readFileSync(absolute, 'utf8') };
+  return { file: normalised, text: fs.readFileSync(absolute, 'utf8') };
+}
+
+/** Reads an HTML file inside the repository. Throws a readable error otherwise. */
+export function readHtmlSource(relPath) {
+  const { file, text } = readSource(relPath, /\.html?$/i, 'HTML');
+  return { file, html: text };
+}
+
+/** Reads a stylesheet inside the repository. Throws a readable error otherwise. */
+export function readCssSource(relPath) {
+  const { file, text } = readSource(relPath, /\.css$/i, 'CSS');
+  return { file, css: text };
 }
 
 /** Text with the tags taken out and whitespace collapsed, for measuring how much content there is. */
@@ -138,6 +162,17 @@ function innerOf(html, open) {
   return html.slice(start, closeStart);
 }
 
+/** The first element matching `open`, start and end tags included, or null. */
+function outerOf(html, open) {
+  const m = open.exec(html);
+  if (!m) return null;
+  const end = elementEnd(html, m[1], m.index + m[0].length);
+  return html.slice(m.index, end < 0 ? html.length : end);
+}
+
+const MAIN_TAG = /<(main)\b[^>]*>/i;
+const MAIN_ROLE = /<([a-zA-Z][\w-]*)\b[^>]*\brole\s*=\s*["']?main\b[^>]*>/i;
+
 /** Keeps only the attributes markdown can carry; embedded data: images are dropped. */
 function simplifyTags(html, removed) {
   return html
@@ -157,6 +192,35 @@ function simplifyTags(html, removed) {
     });
 }
 
+/**
+ * keepStyles: every element and attribute stays (minus event handlers, data-*
+ * and javascript: links), and each class gets `prefix`. Returns the HTML and
+ * the class names and ids it uses, unprefixed, for scoping the CSS.
+ */
+function styledTags(html, prefix) {
+  const classes = new Set();
+  const ids = new Set();
+  const out = html.replace(START_TAG, (whole, name, attrs, selfClosing) => {
+    const kept = [];
+    for (const m of attrs.matchAll(/([^\s=/"']+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+))?/g)) {
+      const [, attr, raw] = m;
+      if (DROP_STYLED_ATTRIBUTE.test(attr)) continue;
+      const value = raw === undefined ? null : raw.replace(/^["']|["']$/g, '');
+      if (/^(href|src|action|formaction|xlink:href)$/i.test(attr) && value !== null && /^\s*javascript:/i.test(value)) continue;
+      if (/^class$/i.test(attr) && value !== null) {
+        const names = value.split(/\s+/).filter(Boolean);
+        for (const n of names) classes.add(n);
+        if (names.length) kept.push(`class="${names.map((n) => prefix + n).join(' ')}"`);
+        continue;
+      }
+      if (/^id$/i.test(attr) && value) ids.add(value);
+      kept.push(raw === undefined ? attr : `${attr}=${raw}`);
+    }
+    return `<${name}${kept.length ? ` ${kept.join(' ')}` : ''}${selfClosing ? ' /' : ''}>`;
+  });
+  return { html: out, classes, ids };
+}
+
 function decodeEntities(text) {
   return text
     .replace(/&amp;/g, '&')
@@ -168,11 +232,14 @@ function decodeEntities(text) {
     .trim();
 }
 
+const removedList = (removed) => Object.entries(removed).map(([what, n]) => (n > 1 ? `${what} (${n})` : what));
+
 /**
  * Cleans an HTML page down to its content.
- * Returns { title, description, html, removed: ["header", "navigation (3)"…], text }.
+ * Returns { title, description, html, removed: ["header", "navigation (3)"…], text },
+ * plus { classes, ids } with keepStyles.
  */
-export function cleanHtml(source) {
+export function cleanHtml(source, { keepStyles = false, prefix = '' } = {}) {
   const removed = {};
   const head = /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(source)?.[1] ?? source;
   const title = decodeEntities(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(head)?.[1] ?? '');
@@ -181,18 +248,33 @@ export function cleanHtml(source) {
 
   let html = source.replace(/<!--[\s\S]*?-->/g, '').replace(/<!doctype[^>]*>/gi, '');
   html = innerOf(html, /<(body)\b[^>]*>/i) ?? html;
-  html = dropElements(html, DROP_ELEMENTS);
+  html = dropElements(html, keepStyles ? DROP_STYLED_ELEMENTS : DROP_ELEMENTS);
   html = html.replace(/<(link|meta|base)\b[^>]*>/gi, '');
 
   // When <main> holds most of the page, everything around it is the site, not the page.
-  const main = innerOf(html, /<(main)\b[^>]*>/i) ?? innerOf(html, /<([a-zA-Z][\w-]*)\b[^>]*\brole\s*=\s*["']?main\b[^>]*>/i);
+  const main = innerOf(html, MAIN_TAG) ?? innerOf(html, MAIN_ROLE);
   const pageText = visibleText(removeChrome(html, {})).length;
   if (main !== null && visibleText(main).length >= pageText * 0.3) {
     if (visibleText(main).length < visibleText(html).length) removed['everything outside <main>'] = 1;
-    html = main;
+    // Kept with its own tag when styles are kept: its classes may carry the layout.
+    html = keepStyles ? (outerOf(html, MAIN_TAG) ?? outerOf(html, MAIN_ROLE)) : main;
   }
 
   html = removeChrome(html, removed);
+
+  if (keepStyles) {
+    const styled = styledTags(html.trim(), prefix);
+    return {
+      title,
+      description,
+      html: styled.html,
+      text: visibleText(styled.html),
+      classes: styled.classes,
+      ids: styled.ids,
+      removed: removedList(removed),
+    };
+  }
+
   html = simplifyTags(html, removed);
   html = html
     .split('\n')
@@ -201,24 +283,63 @@ export function cleanHtml(source) {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  return {
-    title,
-    description,
-    html,
-    text: visibleText(html),
-    removed: Object.entries(removed).map(([what, n]) => (n > 1 ? `${what} (${n})` : what)),
-  };
+  return { title, description, html, text: visibleText(html), removed: removedList(removed) };
 }
 
 /** The <img> sources in cleaned HTML, in order, with their alt text. */
 export function htmlImages(html) {
   const seen = new Set();
   const images = [];
-  for (const m of html.matchAll(/<img\b([^>]*)>/gi)) {
+  for (const m of html.matchAll(/<img\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
     const src = (attribute(m[1], 'src') || '').trim();
-    if (!src || seen.has(src)) continue;
+    if (!src || /^data:/i.test(src) || seen.has(src)) continue;
     seen.add(src);
     images.push({ src, alt: attribute(m[1], 'alt') || '' });
   }
   return images;
+}
+
+/** Replaces each <img>'s src with `resolve(src)`, or removes the image when that returns null. */
+export function rewriteImages(html, resolve) {
+  return html.replace(/<img\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi, (whole, attrs) => {
+    const src = (attribute(attrs, 'src') || '').trim();
+    if (!src || /^data:/i.test(src)) return whole;
+    const next = resolve(src);
+    if (next === null) return '';
+    return whole.replace(/(\ssrc\s*=\s*)("[^"]*"|'[^']*'|[^\s"'>]+)/i, `$1"${next}"`);
+  });
+}
+
+/**
+ * The page's stylesheets in cascade order: { inline: css } for each <style>
+ * block and { href } for each <link rel="stylesheet">.
+ */
+export function stylesheetsIn(source) {
+  const html = source.replace(/<!--[\s\S]*?-->/g, '');
+  const sheets = [];
+  for (const m of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>|<link\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
+    if (m[1] !== undefined) {
+      if (m[1].trim()) sheets.push({ inline: m[1] });
+    } else if (/\bstylesheet\b/i.test(attribute(m[2], 'rel') || '')) {
+      const href = attribute(m[2], 'href');
+      if (href) sheets.push({ href: href.trim() });
+    }
+  }
+  return sheets;
+}
+
+/**
+ * Makes HTML safe as one raw block in a markdown content file: the renderer
+ * ends a raw block at the first blank line, and the template engine reads "{{".
+ * A blank line inside <pre> becomes a line holding an entity space, so it shows.
+ */
+export function asRawBlock(html) {
+  let inPre = 0;
+  const lines = [];
+  for (const line of html.replace(/\r\n?/g, '\n').split('\n')) {
+    if (line.trim()) lines.push(line.replace(/\s+$/, ''));
+    else if (inPre > 0) lines.push('&#32;');
+    inPre = Math.max(0, inPre + (line.match(/<pre\b/gi) || []).length - (line.match(/<\/pre\s*>/gi) || []).length);
+  }
+  return lines.join('\n').replace(/\{\{/g, '&#123;{').replace(/\}\}/g, '}&#125;');
 }

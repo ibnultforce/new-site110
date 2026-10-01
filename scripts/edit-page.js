@@ -29,6 +29,16 @@
  *   node scripts/edit-page.js <page> --from-html=old/about.html ["<extra direction>"]
  *   node scripts/edit-page.js <page> --from-html=old/about.html --dry-run
  *
+ * Add --keep-styles to keep the old page's look instead: the body is copied
+ * as-is (classes, inline styles, SVG; header, footer and navigation still
+ * removed) rather than converted to markdown, and the page's <style> blocks
+ * plus any --css=<file.css> (its linked stylesheets, repeatable) are scoped to
+ * that page and saved as assets/css/imported/<page>.css, which the page loads
+ * through its "stylesheet" frontmatter field. Claude only writes the
+ * frontmatter. See scripts/lib/css-scope.js.
+ *
+ *   node scripts/edit-page.js <page> --from-html=old/about.html --keep-styles --css=old/site.css
+ *
  * The queue:
  *   node scripts/edit-page.js                          run every queued edit in
  *                                                       scripts/page-commands.json
@@ -74,7 +84,18 @@ import { ROOT, readJson, loadSite } from './lib/content.js';
 import { parseFrontmatter } from './lib/markdown.js';
 import { bannedPhraseWarnings, requestClaude, resolveImages, stripFence } from './lib/claude-writer.js';
 import { knowledgePrompt, recordWork } from './lib/knowledge.js';
-import { MAX_CLEAN_CHARS, cleanHtml, htmlImages, readHtmlSource, visibleText } from './lib/html-source.js';
+import {
+  MAX_CLEAN_CHARS,
+  asRawBlock,
+  cleanHtml,
+  htmlImages,
+  readCssSource,
+  readHtmlSource,
+  rewriteImages,
+  stylesheetsIn,
+  visibleText,
+} from './lib/html-source.js';
+import { scopeCss } from './lib/css-scope.js';
 
 const COMMANDS_PATH = path.join(ROOT, 'scripts/page-commands.json');
 const DEFAULT_QUEUE_COMMENT = 'Queue of pending edits for `npm run page:edit` (no arguments). Each entry is one job: { file, instruction }, optionally with "images": [...] and "mode": "generate" (turn the file\'s own draft into the finished page; the instruction may then be empty). Running with no arguments processes every entry in order, writes each one, then removes it from this queue. Add entries by hand any time; running `npm run page:edit -- <page> "<instruction>"` with arguments applies that edit immediately instead and never touches this file.';
@@ -98,6 +119,8 @@ const generateFlag = Boolean(flag('generate'));
 const imageArgs = argv.filter((a) => a.startsWith('--image=')).map((a) => a.slice('--image='.length));
 const proposalOut = flag('proposal-out');
 const fromHtml = flag('from-html');
+const keepStylesFlag = Boolean(flag('keep-styles'));
+const cssArgs = argv.filter((a) => a.startsWith('--css=')).map((a) => a.slice('--css='.length));
 
 const site = readJson(path.join(ROOT, 'site.config.json'));
 const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -460,6 +483,131 @@ ${instruction ? `Extra direction from the author: ${instruction}` : 'Convert thi
   return { systemPrompt, userPrompt, isContent: true };
 }
 
+/** With --keep-styles Claude writes only the frontmatter; the body is the old page's own HTML. */
+function buildStyledFrontmatterPrompts(relFile, instruction, original, page, textPage) {
+  const systemPrompt = `You write the frontmatter for a page on ${site.name}'s website (${site.description}). The page's body is an existing web page's HTML, copied as-is with its own styling, so you don't write or change the body: you return only the frontmatter block.
+
+FRONTMATTER
+- Keep every existing field and its value. A value that is a note to the writer rather than content — what "npm run new" leaves, such as "Under 160 characters, written for search results." or "One sentence on what this page is for." — counts as empty: replace it from the page, or leave the field empty if the page has nothing for it.
+- Keep the title unless it's empty or a placeholder, in which case use the page's main heading (or else the HTML <title> without the site name).
+- Never add, change or remove ${LOCKED_FIELDS.join(', ')}: the site derives them when they're missing, and changing them moves or unpublishes the page.
+- If description is missing, empty or a placeholder, use the HTML's meta description if there is one (at most 160 characters), or else write one plain sentence summarising the page from its text.
+- Don't add fields the layout shows above or around the body (heroHeading, heroText, kicker, highlights…): the page shows its own HTML instead, so they would never appear. Leave existing ones as they are.
+- Add nothing that isn't in the page's text. British spelling, no exclamation marks.
+
+${FRONTMATTER_SYNTAX}
+
+${knowledgeSection()}OUTPUT
+Return only the frontmatter block: a line "---", the fields, and a closing line "---". Nothing before or after it, no code fence.`;
+
+  const userPrompt = `File: ${relFile}
+
+----- current file -----
+${original}
+----- end current file -----
+
+The page it now shows: ${page.file}${page.title ? `\n<title>: ${page.title}` : ''}${page.description ? `\nMeta description: ${page.description}` : ''}
+----- the page's text (simplified HTML) -----
+${textPage.html.slice(0, 40000)}
+----- end page -----
+
+${instruction ? `Extra direction from the author: ${instruction}` : 'Write the frontmatter.'}`;
+
+  return { systemPrompt, userPrompt };
+}
+
+/** Where a page's imported stylesheet lives: assets/css/imported/<page>.css. */
+function importedStylesheet(relFile) {
+  const name = path.posix.basename(relFile, '.md').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'page';
+  return `assets/css/imported/${name}.css`;
+}
+
+const IMPORT_SCOPE = 'imported-page';
+const IMPORT_PREFIX = 'imp-';
+const MAX_IMPORTED_CSS = 600 * 1024;
+// Web-font services whose stylesheets only declare fonts, so they're kept as an @import.
+const FONT_STYLESHEET = /^(https?:)?\/\/(fonts\.googleapis\.com|fonts\.bunny\.net|use\.typekit\.net|api\.fontshare\.com)\//i;
+
+/**
+ * --keep-styles: the body (the old page's HTML in one raw block, inside the
+ * scope wrapper) and the scoped stylesheet. `cssFiles` stand in for the page's
+ * linked stylesheets: one whose name matches a <link href> takes that link's
+ * place in the cascade, and the rest come first.
+ */
+function buildStyledPage(source, cssFiles, relFile) {
+  const { file, html } = readHtmlSource(source);
+  const page = cleanHtml(html, { keepStyles: true, prefix: IMPORT_PREFIX });
+  if (!page.text && !/<(img|svg)\b/i.test(page.html)) throw new Error(`${file} has no content left once its header, footer and scripts are removed`);
+
+  const warnings = [];
+  const unavailable = [];
+  const body = rewriteImages(page.html, (src) => {
+    const value = src.startsWith('//') ? `https:${src}` : src;
+    if (/^https?:\/\//i.test(value)) return value;
+    const relative = path.posix.normalize(value.split(/[?#]/)[0].replace(/^\/+/, '').replace(/^\.\//, ''));
+    if (!relative.startsWith('../') && relative.split('/')[0] !== '.git' && fs.existsSync(path.join(ROOT, relative))) return `/${relative}`;
+    unavailable.push(src);
+    return null;
+  });
+  for (const src of [...new Set(unavailable)]) {
+    warnings.push(`left out ${src}: it isn't in this site. Upload the image and add it to the page if it's needed`);
+  }
+  for (const m of body.matchAll(/style\s*=\s*"[^"]*url\(\s*['"]?(?!https?:|data:|\/assets\/)([^'")]+)/gi)) {
+    warnings.push(`an inline style refers to ${m[1]}, which isn't in this site, so that background won't load`);
+  }
+
+  // The page's own cascade: <style> blocks and <link>ed sheets in order, uploads standing in for the links.
+  const uploads = cssFiles.map((f) => readCssSource(f));
+  const used = new Set();
+  const sheets = [];
+  for (const entry of stylesheetsIn(html)) {
+    if (entry.inline !== undefined) {
+      sheets.push({ name: 'inline <style>', css: entry.inline });
+      continue;
+    }
+    const base = path.posix.basename(entry.href.split(/[?#]/)[0]).toLowerCase();
+    const match = uploads.find((u, i) => !used.has(i) && path.posix.basename(u.file).toLowerCase() === base);
+    if (match) {
+      used.add(uploads.indexOf(match));
+      sheets.push({ name: path.posix.basename(match.file), css: match.css });
+    } else if (FONT_STYLESHEET.test(entry.href)) {
+      // Only @font-face rules, so they're safe to load as they are.
+      sheets.push({ name: 'web fonts', css: `@import url("${entry.href.replace(/^\/\//, 'https://').replace(/"/g, '%22')}");` });
+    } else if (!/^https?:|^\/\//i.test(entry.href)) {
+      warnings.push(`the page links ${entry.href}, which wasn't uploaded, so its styles are missing. Upload it with the HTML`);
+    } else {
+      warnings.push(`the page links ${entry.href}; that stylesheet isn't copied. Download it and upload it with the HTML to include it`);
+    }
+  }
+  const unmatched = uploads.filter((_, i) => !used.has(i)).map((u) => ({ name: path.posix.basename(u.file), css: u.css }));
+  const scoped = scopeCss([...unmatched, ...sheets], { scope: `.${IMPORT_SCOPE}`, prefix: IMPORT_PREFIX, classes: page.classes, ids: page.ids });
+  warnings.push(...scoped.warnings);
+  if (!scoped.rules) warnings.push("no CSS rules apply to this page's content, so it will show with browser default styles");
+  if (scoped.css.length > MAX_IMPORTED_CSS) throw new Error(`the page's CSS is over ${MAX_IMPORTED_CSS / 1024} KB even after unused rules are removed`);
+  if (page.removed.length) warnings.push(`removed from the HTML: ${page.removed.join(', ')}`);
+
+  return {
+    file,
+    title: page.title,
+    description: page.description,
+    removed: page.removed,
+    body: `<div class="${IMPORT_SCOPE}">\n${asRawBlock(body)}\n</div>\n`,
+    stylesheet: { file: importedStylesheet(relFile), content: `/* Imported with ${path.posix.basename(file)} by scripts/edit-page.js --keep-styles. Scoped to .${IMPORT_SCOPE}; regenerate it by converting again. */\n${scoped.css}` },
+    rules: scoped.rules,
+    warnings,
+  };
+}
+
+/** Claude's frontmatter (with "stylesheet" set) followed by the copied body. */
+function assembleStyledFile(reply, styled) {
+  const match = FRONTMATTER_BLOCK.exec(reply.trim());
+  const lines = (match ? match[1] : '').split(/\r?\n/).filter((line) => !/^stylesheet\s*:/.test(line));
+  lines.push(`stylesheet: /${styled.stylesheet.file}`);
+  // The imported page brings its own call to action; the site's would be added after it.
+  if (!lines.some((line) => /^hideCta\s*:/.test(line))) lines.push('hideCta: true');
+  return `---\n${lines.join('\n')}\n---\n\n${styled.body}`;
+}
+
 /**
  * The HTML page to convert, cleaned, with its images split into ones the site
  * can show (URLs, files in the repo) and ones it can't (relative paths to the
@@ -785,7 +933,66 @@ const MODE_LABELS = {
   convert: 'convert an HTML page into this page',
 };
 
-async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit', source = null) {
+/** --from-html --keep-styles: the old page's HTML and CSS copied as-is, and Claude writes the frontmatter. */
+async function applyStyledConvert(relFile, instruction, original, source, cssFiles) {
+  let styled;
+  let textPage;
+  try {
+    styled = buildStyledPage(source, cssFiles, relFile);
+    textPage = cleanHtml(readHtmlSource(source).html);
+  } catch (error) {
+    console.error(`  Can't convert: ${error.message}.\n`);
+    return false;
+  }
+  console.log(`  Styles: kept, ${styled.rules} CSS rule${styled.rules === 1 ? '' : 's'} into ${styled.stylesheet.file}${cssFiles.length ? ` (from the HTML and ${cssFiles.join(', ')})` : ' (from the HTML)'}`);
+  if (styled.removed.length) console.log(`  Removed: ${styled.removed.join(', ')}`);
+
+  const { systemPrompt, userPrompt } = buildStyledFrontmatterPrompts(relFile, instruction, original, styled, textPage);
+  if (!apiKey) {
+    console.log(`----- system prompt -----\n${systemPrompt}\n\n----- user prompt -----\n${userPrompt}\n`);
+    console.log(`----- body that would be written -----\n${styled.body}\n----- ${styled.stylesheet.file} -----\n${styled.stylesheet.content}`);
+    console.log('  No ANTHROPIC_API_KEY set, so nothing was sent.\n');
+    return false;
+  }
+
+  console.log(`  Model: ${site.automation.model}\n`);
+  const reply = await requestClaude({ apiKey, model: site.automation.model, systemPrompt, userContent: userPrompt, maxTokens: 4000 });
+  if (reply.stopReason === 'refusal') {
+    console.error('  Claude declined this request. Rephrase the direction and try again.\n');
+    return false;
+  }
+  const raw = assembleStyledFile(stripFence(reply.text), styled);
+  const { problems, warnings } = pageChecks(original, raw);
+  if (!FRONTMATTER_BLOCK.test(stripFence(reply.text).trim())) problems.unshift("Claude's reply had no frontmatter block");
+  if (reply.stopReason === 'max_tokens') problems.unshift("Claude's reply was cut off, so the frontmatter is incomplete");
+  warnings.push(...styled.warnings);
+  const files = [styled.stylesheet];
+
+  if (dryRun) {
+    console.log(`----- proposed ${relFile} (not written) -----\n`);
+    console.log(raw);
+    console.log(`----- proposed ${styled.stylesheet.file} (not written, ${styled.stylesheet.content.length} characters) -----`);
+    if (problems.length) console.log(`\n  problem: ${problems.join('\n  problem: ')}`);
+    if (warnings.length) console.log(`\n  warning: ${warnings.join('\n  warning: ')}`);
+    if (proposalOut) writeProposal({ relFile, mode: 'convert', instruction, images: [], raw, problems, warnings, source: styled.file, files });
+    return false;
+  }
+
+  if (problems.length) {
+    console.error(`\n  Refused to write — looked wrong:\n${problems.map((p) => `    - ${p}`).join('\n')}\n\n  Re-run with --dry-run to inspect the output, or rephrase the direction.\n`);
+    return false;
+  }
+
+  fs.mkdirSync(path.dirname(path.join(ROOT, styled.stylesheet.file)), { recursive: true });
+  fs.writeFileSync(path.join(ROOT, styled.stylesheet.file), styled.stylesheet.content);
+  fs.writeFileSync(path.join(ROOT, relFile), raw);
+  recordWork({ command: 'page:convert', file: relFile, instruction: instruction || `${defaultLogInstruction('convert', styled.file)}, keeping its styles` });
+  for (const warning of warnings) console.log(`  warning: ${warning}`);
+  console.log(`\n  Wrote ${relFile} and ${styled.stylesheet.file}\n`);
+  return true;
+}
+
+async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit', source = null, { keepStyles = false, css = [] } = {}) {
   const generate = mode === 'generate';
   const convert = mode === 'convert';
   console.log(`  File: ${relFile}`);
@@ -813,6 +1020,8 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     console.error(`  ${relFile} has no draft to work from yet. Write the page's content in it first, or add a direction.\n`);
     return false;
   }
+
+  if (convert && keepStyles) return applyStyledConvert(relFile, instruction, original, source, css);
 
   let htmlPage = null;
   if (convert) {
@@ -907,7 +1116,7 @@ function defaultLogInstruction(mode, source) {
 }
 
 /** Saves a dry-run's proposed file for tools that show it and then write exactly that version. */
-function writeProposal({ relFile, mode, instruction, images, raw, problems, warnings, source }) {
+function writeProposal({ relFile, mode, instruction, images, raw, problems, warnings, source, files }) {
   const target = path.resolve(ROOT, String(proposalOut));
   if (!target.startsWith(ROOT + path.sep)) {
     console.error(`  --proposal-out must be inside the repository, not ${proposalOut}.`);
@@ -919,6 +1128,8 @@ function writeProposal({ relFile, mode, instruction, images, raw, problems, warn
     instruction,
     images: images.map((image) => image.ref),
     ...(source ? { source } : {}),
+    // Other files the change writes alongside the page (a --keep-styles stylesheet).
+    ...(files?.length ? { files } : {}),
     content: raw.endsWith('\n') ? raw : `${raw}\n`,
     problems,
     warnings,
@@ -939,7 +1150,7 @@ async function runAdHoc(pageArg, instruction, mode, source) {
     process.exit(1);
   }
 
-  const ok = await applyEdit(relFile, instruction, imageArgs, mode, source);
+  const ok = await applyEdit(relFile, instruction, imageArgs, mode, source, { keepStyles: keepStylesFlag, css: cssArgs });
   if (!dryRun) {
     console.log(ok ? `  Review with: git diff -- ${relFile}\n  Validate with: npm run check\n` : '');
     process.exit(ok ? 0 : 3);
@@ -975,7 +1186,10 @@ async function runQueue() {
       console.error(`  ${job.file}: a queued convert job needs "source": the HTML file to convert.\n`);
     } else {
       const relFile = (job.file && resolveFile(job.file)) || String(job.file || '');
-      ok = await applyEdit(relFile, job.instruction || '', Array.isArray(job.images) ? job.images : [], mode, job.source || null);
+      ok = await applyEdit(relFile, job.instruction || '', Array.isArray(job.images) ? job.images : [], mode, job.source || null, {
+        keepStyles: job.keepStyles === true,
+        css: Array.isArray(job.css) ? job.css.map(String) : [],
+      });
     }
 
     if (dryRun) {
@@ -1006,7 +1220,9 @@ if (positional.length) {
   const [pageArg, instructionArg] = positional;
   const instruction = instructionArg || (typeof flag('instruction') === 'string' ? flag('instruction') : '');
   const mode = generateFlag ? 'generate' : fromHtml !== undefined ? 'convert' : 'edit';
-  const usable = mode === 'edit' ? Boolean(instruction) : mode === 'generate' ? fromHtml === undefined : typeof fromHtml === 'string';
+  const usable =
+    (mode === 'edit' ? Boolean(instruction) : mode === 'generate' ? fromHtml === undefined : typeof fromHtml === 'string') &&
+    ((!keepStylesFlag && !cssArgs.length) || mode === 'convert');
   if (!usable) {
     console.error(`
   Usage:
@@ -1014,6 +1230,8 @@ if (positional.length) {
     node scripts/edit-page.js <page> --generate ["<direction>"]  turn the page's draft into the finished page
     node scripts/edit-page.js <page> --from-html=<file.html> ["<direction>"]
                                                               convert an existing HTML page into this page
+    node scripts/edit-page.js <page> --from-html=<file.html> --keep-styles [--css=<file.css>...]
+                                                              copy it as-is with its own CSS instead
     node scripts/edit-page.js                                 run every queued edit
     node scripts/edit-page.js --list                          show the queue
 `);
