@@ -19,6 +19,16 @@
  *   node scripts/edit-page.js <page> --generate ["<extra direction>"]
  *   node scripts/edit-page.js <page> --generate --dry-run
  *
+ * Convert (--from-html=<file>): turn an existing HTML page (from an old site,
+ * say) into the page's markdown. The site's header, footer, navigation,
+ * sidebars, scripts and styles are cut out before Claude sees the HTML
+ * (scripts/lib/html-source.js), and Claude leaves out any it still finds.
+ * The wording is kept, the page's frontmatter is kept, and the page's current
+ * body is replaced. The instruction is optional extra direction.
+ *
+ *   node scripts/edit-page.js <page> --from-html=old/about.html ["<extra direction>"]
+ *   node scripts/edit-page.js <page> --from-html=old/about.html --dry-run
+ *
  * The queue:
  *   node scripts/edit-page.js                          run every queued edit in
  *                                                       scripts/page-commands.json
@@ -40,12 +50,14 @@
  *                            exactly that version.
  *
  * <page> is a content slug (e.g. "products"), a URL, or a file path under
- * content/ or templates/. --generate only takes a markdown page under content/.
+ * content/ or templates/. --generate and --from-html only take a markdown page
+ * under content/. The HTML file must be inside the repository.
  *
- * With no <page> argument, every { file, instruction, images?, mode? } entry
- * in scripts/page-commands.json's "queue" is applied in order and removed from
- * the queue as it succeeds ("mode": "generate" runs a generate job, whose
- * instruction may be empty). With a <page> argument, that one edit runs
+ * With no <page> argument, every { file, instruction, images?, mode?, source? }
+ * entry in scripts/page-commands.json's "queue" is applied in order and removed
+ * from the queue as it succeeds ("mode": "generate" runs a generate job, and
+ * "mode": "convert" with "source": "<file.html>" a convert job; the instruction
+ * of either may be empty). With a <page> argument, that one edit runs
  * immediately and scripts/page-commands.json is not touched — add entries to
  * the queue by hand.
  *
@@ -62,6 +74,7 @@ import { ROOT, readJson, loadSite } from './lib/content.js';
 import { parseFrontmatter } from './lib/markdown.js';
 import { bannedPhraseWarnings, requestClaude, resolveImages, stripFence } from './lib/claude-writer.js';
 import { knowledgePrompt, recordWork } from './lib/knowledge.js';
+import { MAX_CLEAN_CHARS, cleanHtml, htmlImages, readHtmlSource, visibleText } from './lib/html-source.js';
 
 const COMMANDS_PATH = path.join(ROOT, 'scripts/page-commands.json');
 const DEFAULT_QUEUE_COMMENT = 'Queue of pending edits for `npm run page:edit` (no arguments). Each entry is one job: { file, instruction }, optionally with "images": [...] and "mode": "generate" (turn the file\'s own draft into the finished page; the instruction may then be empty). Running with no arguments processes every entry in order, writes each one, then removes it from this queue. Add entries by hand any time; running `npm run page:edit -- <page> "<instruction>"` with arguments applies that edit immediately instead and never touches this file.';
@@ -84,6 +97,7 @@ const dryRun = Boolean(flag('dry-run'));
 const generateFlag = Boolean(flag('generate'));
 const imageArgs = argv.filter((a) => a.startsWith('--image=')).map((a) => a.slice('--image='.length));
 const proposalOut = flag('proposal-out');
+const fromHtml = flag('from-html');
 
 const site = readJson(path.join(ROOT, 'site.config.json'));
 const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -109,6 +123,7 @@ if (flag('list')) {
     for (const job of queue) {
       console.log(`  file:        ${job.file}`);
       if (job.mode === 'generate') console.log('  mode:        generate');
+      if (job.mode === 'convert') console.log(`  mode:        convert from ${job.source || '(no source given)'}`);
       console.log(`  instruction: ${job.instruction}\n`);
     }
   }
@@ -363,6 +378,121 @@ function layoutFor(relFile, frontmatter) {
   return { name, source, fields };
 }
 
+/* --------------------------------------------------------- convert prompt */
+
+function buildConvertPrompts(relFile, instruction, original, images, layoutInfo, page) {
+  const urls = internalUrls();
+  const imageList = images.length
+    ? images
+        .map((image, i) => {
+          const from = image.src && image.src !== image.ref ? ` (src="${image.src}" in the HTML)` : '';
+          const seen = image.block ? '' : ` (not shown to you: ${image.why || 'unsupported type or too large'} — use its alt text from the HTML)`;
+          return `  ${i + 1}. ${image.ref}${from}${seen}`;
+        })
+        .join('\n')
+    : '  None.';
+  const unavailable = page.unavailable.length
+    ? `\nThese images in the HTML aren't available to this site, so leave them out entirely (the author will add them later): ${page.unavailable.join(', ')}`
+    : '';
+  const { data } = parseFrontmatter(original);
+
+  const systemPrompt = `You convert an existing web page's HTML into a markdown content file for ${site.name}'s website (${site.description}). The page has been moved here from somewhere else. The author wants the same page, with the same content, in this site's format.
+
+WHAT TO KEEP AND WHAT TO LEAVE OUT
+- Convert the page's own content: every heading, paragraph, list, table, quote, link and image, in the same order and with the same wording. This is a conversion, not a rewrite. Don't summarise, shorten, expand or reword, except to fix obvious HTML debris (stray entities, words split by tags).
+- Leave out everything that belongs to the old site rather than to this page: its header (logo, site name, top menu), footer (copyright, footer links, addresses repeated on every page, social icons, newsletter sign-up), navigation, breadcrumbs, sidebars, cookie banners, "skip to content" links, search boxes, share buttons and related-post widgets. Most of these have already been removed from the HTML you're given; leave out any that remain. The new site renders its own header, footer, navigation and call to action around this page.
+- Leave out forms and buttons that only worked with the old site's scripts. Keep links that point somewhere real.
+- Add nothing: no facts, sentences, headings or images that aren't in the HTML. The description of the company at the top of these instructions is background, not material.
+
+HOW TO WRITE IT
+- Headings: the page's main heading (usually the <h1>) becomes the page title, not a body heading. Body headings start at "##"; keep their relative levels ("###" under "##").
+- Use markdown for paragraphs, emphasis, lists, links, images and simple tables. Keep raw HTML only for what markdown can't express (a table with merged cells, an embedded video), as an HTML block with blank lines before and after it and none inside it.
+- Links: keep each link's URL unchanged. If it clearly points at a page that exists on this site, use that page's address from this list instead:
+${urls.map((u) => `    ${u}`).join('\n')}
+- Never write "{{" or "}}": this file is rendered as a template, so literal braces break it. Reword around them.
+
+FRONTMATTER
+- Keep every existing field and its value. A value that is a note to the writer rather than content — what "npm run new" leaves, such as "Under 160 characters, written for search results." or "One sentence on what this page is for." — counts as empty: replace it from the HTML, or leave the field empty if the HTML has nothing for it.
+- Keep the title unless it's empty or a placeholder, in which case use the page's main heading (or else the HTML <title> without the site name).
+- Never add, change or remove ${LOCKED_FIELDS.join(', ')}: the site derives them when they're missing, and changing them moves or unpublishes the page.
+- If description is missing, empty or a placeholder, use the HTML's meta description if there is one (at most 160 characters), or else write one plain sentence summarising the page.
+- Fill in other fields this layout reads (listed below) that are missing or empty, but only from material that is in the HTML — for example an intro paragraph under the main heading as heroText, or a list that matches deliverables. Material moved into such a field shouldn't also be repeated in the body.
+- The page's current body is replaced by the converted content.
+
+${FRONTMATTER_SYNTAX}
+
+THE PAGE'S LAYOUT
+This page renders through templates/layouts/${layoutInfo.name}.html. The layout already shows the title and hero above the body and any FAQ, call to action and related items after it, so the body must not repeat them. Fields this layout reads from the frontmatter: ${layoutInfo.fields.length ? layoutInfo.fields.join(', ') : 'none beyond title'}.
+----- templates/layouts/${layoutInfo.name}.html -----
+${layoutInfo.source || '(layout file not found)'}
+----- end layout -----
+
+IMAGES
+${imageList}${unavailable}
+- Reference each image by exactly the path or URL listed (not the HTML's src when they differ). Never invent or alter an image path.
+- The images you can see are attached above, in the same order. Keep the HTML's alt text when it describes the image; otherwise write alt text that says what is visibly in the image. Use ![Alt text](path), or the HTML <figure> form for an image that had a caption:
+<figure>
+  <img src="path" alt="Alt text" loading="lazy">
+  <figcaption>Caption</figcaption>
+</figure>
+- Leave out purely decorative images (spacers, dividers, icons next to a heading).
+
+${HOUSE_RULES.replace(/^- (British spelling|Do not invent facts).*\n/gm, '')}
+- Keep the original wording even where it doesn't follow this site's style: the author asked for a conversion. Only follow the style rules for text you have to write yourself (a description, alt text).
+
+${knowledgeSection()}OUTPUT
+Return only the raw contents of the finished file, starting with the opening "---" of the frontmatter. No commentary, no explanation, no surrounding code fence.`;
+
+  const userPrompt = `File: ${relFile}
+
+----- current file (keep its frontmatter, replace its body) -----
+${original}
+----- end current file -----
+
+HTML page to convert: ${page.file}${page.title ? `\n<title>: ${page.title}` : ''}${page.description ? `\nMeta description: ${page.description}` : ''}${data.title ? '' : '\nThe current file has no title.'}
+${page.removed.length ? `Already removed from it: ${page.removed.join(', ')}.\n` : ''}
+----- HTML -----
+${page.html}
+----- end HTML -----
+
+${instruction ? `Extra direction from the author: ${instruction}` : 'Convert this page.'}`;
+
+  return { systemPrompt, userPrompt, isContent: true };
+}
+
+/**
+ * The HTML page to convert, cleaned, with its images split into ones the site
+ * can show (URLs, files in the repo) and ones it can't (relative paths to the
+ * old site's files). Throws a readable error for a missing or oversized file.
+ */
+function loadHtmlPage(source) {
+  const { file, html } = readHtmlSource(source);
+  const cleaned = cleanHtml(html);
+  if (!cleaned.text) throw new Error(`${file} has no text left once its header, footer and scripts are removed`);
+  if (cleaned.html.length > MAX_CLEAN_CHARS) {
+    throw new Error(`${file} is too long to convert in one request (${cleaned.html.length} characters of content once cleaned, the limit is ${MAX_CLEAN_CHARS}). Split it into smaller pages first.`);
+  }
+
+  const entries = [];
+  const unavailable = [];
+  for (const { src } of htmlImages(cleaned.html)) {
+    const value = src.startsWith('//') ? `https:${src}` : src;
+    if (/^https?:\/\//i.test(value)) {
+      entries.push({ value, src });
+      continue;
+    }
+    const relative = path.posix.normalize(value.split(/[?#]/)[0].replace(/^\/+/, '').replace(/^\.\//, ''));
+    const usable =
+      !relative.startsWith('../') &&
+      relative.split('/')[0] !== '.git' &&
+      new RegExp(`\\.(${IMAGE_EXT})$`, 'i').test(relative) &&
+      fs.existsSync(path.join(ROOT, relative));
+    if (usable) entries.push({ value: relative, src });
+    else unavailable.push(src);
+  }
+  return { file, ...cleaned, entries, unavailable };
+}
+
 /* ----------------------------------------------------------------- images */
 
 const IMAGE_EXT = 'png|jpe?g|gif|webp|svg|avif';
@@ -562,7 +692,57 @@ function editChecks(original, updated, isContent) {
   return { problems, warnings: [] };
 }
 
+const includesImage = (text, ref) => text.includes(ref) || text.includes(ref.replace(/&/g, '&amp;'));
+
+/** No image may appear from nowhere: each one must be among `images` or exist in the repo. */
+function unknownImageProblems(updated, images, source) {
+  const known = new Set(images.map((image) => image.ref));
+  const problems = [];
+  for (const { value } of findDraftImages(updated)) {
+    const ref = canonicalImage(value);
+    const exists = /^https?:/i.test(ref) || fs.existsSync(path.join(ROOT, ref.slice(1)));
+    if (!known.has(ref) && !exists) problems.push(`uses an image that isn't in the ${source} or the repo: ${ref}`);
+  }
+  return problems;
+}
+
 function generateChecks(original, updated, images) {
+  const { problems, warnings } = pageChecks(original, updated);
+
+  // Each image from the draft must survive, and no image may appear from nowhere.
+  for (const image of images) {
+    if (!includesImage(updated, image.ref)) problems.push(`an image from the draft is missing from the page: ${image.ref}`);
+    if (image.missing) warnings.push(`${image.ref} doesn't exist in the repo, so the page will show a broken image until it's added`);
+  }
+  problems.push(...unknownImageProblems(updated, images, 'draft'));
+  if (/<!--|^\s*TODO\b/im.test(parseFrontmatter(updated).body)) warnings.push('the page still contains a comment or TODO note');
+  return { problems, warnings };
+}
+
+function convertChecks(original, updated, images, page) {
+  const { problems, warnings } = pageChecks(original, updated);
+
+  // Decorative images may rightly be left out, so a missing one only warns.
+  for (const image of images) {
+    if (!includesImage(updated, image.ref)) warnings.push(`an image from the HTML isn't in the page: ${image.ref}`);
+  }
+  problems.push(...unknownImageProblems(updated, images, 'HTML'));
+  // One Claude used anyway is already a problem above.
+  for (const src of page.unavailable.filter((s) => !updated.includes(s))) {
+    warnings.push(`left out ${src}: it isn't in this site. Upload the image and add it to the page if it's needed`);
+  }
+
+  const bodyText = visibleText(parseFrontmatter(updated).body.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[#*_>|`-]+/g, ' '));
+  if (bodyText.length < page.text.length * 0.5) {
+    warnings.push(`the page has about ${Math.round((bodyText.length / page.text.length) * 100)}% of the HTML's text. Check that nothing was dropped, beyond the old site's header and footer`);
+  }
+  if (page.removed.length) warnings.push(`removed from the HTML before converting: ${page.removed.join(', ')}`);
+  if (/<!--/.test(parseFrontmatter(updated).body)) warnings.push('the page still contains an HTML comment');
+  return { problems, warnings };
+}
+
+/** Checks shared by generated and converted pages: frontmatter, locked fields, links, headings, template syntax. */
+function pageChecks(original, updated) {
   const problems = [];
   const warnings = [];
   const before = parseFrontmatter(original);
@@ -580,21 +760,6 @@ function generateChecks(original, updated, images) {
     warnings.push(`title changed from "${before.data.title}" to "${after.data.title}"`);
   }
 
-  // Each image from the draft must survive, and no image may appear from nowhere.
-  const escapedAmp = (ref) => ref.replace(/&/g, '&amp;');
-  for (const image of images) {
-    if (!updated.includes(image.ref) && !updated.includes(escapedAmp(image.ref))) {
-      problems.push(`an image from the draft is missing from the page: ${image.ref}`);
-    }
-    if (image.missing) warnings.push(`${image.ref} doesn't exist in the repo, so the page will show a broken image until it's added`);
-  }
-  const known = new Set(images.map((image) => image.ref));
-  for (const { value } of findDraftImages(updated)) {
-    const ref = canonicalImage(value);
-    const exists = /^https?:/i.test(ref) || fs.existsSync(path.join(ROOT, ref.slice(1)));
-    if (!known.has(ref) && !exists) problems.push(`uses an image that isn't in the draft or the repo: ${ref}`);
-  }
-
   // Links to pages that don't exist are the author's call (the page may be coming), so they only warn.
   const urls = new Set(internalUrls());
   const links = [...updated.matchAll(/\]\((\/[^)\s]*)\)|\bhref=["'](\/[^"']*)["']/g)].map((m) => m[1] || m[2]);
@@ -606,7 +771,6 @@ function generateChecks(original, updated, images) {
   }
 
   if (/^#\s/m.test(after.body)) warnings.push('the body has a "# " heading; the layout already shows the title');
-  if (/<!--|^\s*TODO\b/im.test(after.body)) warnings.push('the page still contains a comment or TODO note');
   warnings.push(...bannedPhraseWarnings(after.body));
 
   problems.push(...balanceProblems(updated), ...partialProblems(updated));
@@ -615,24 +779,32 @@ function generateChecks(original, updated, images) {
 
 /* ------------------------------------------------------------- one edit --- */
 
-async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit') {
+const MODE_LABELS = {
+  edit: 'edit by instruction',
+  generate: 'generate the page from its draft',
+  convert: 'convert an HTML page into this page',
+};
+
+async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit', source = null) {
   const generate = mode === 'generate';
+  const convert = mode === 'convert';
   console.log(`  File: ${relFile}`);
-  console.log(`  Mode: ${generate ? 'generate the page from its draft' : 'edit by instruction'}`);
-  if (instruction) console.log(`  ${generate ? 'Direction' : 'Instruction'}: ${instruction}`);
+  console.log(`  Mode: ${MODE_LABELS[mode]}`);
+  if (convert) console.log(`  HTML: ${source}`);
+  if (instruction) console.log(`  ${mode === 'edit' ? 'Instruction' : 'Direction'}: ${instruction}`);
 
   if (!isEditable(relFile)) {
     console.error(`  Won't touch "${relFile}" — outside content/, templates/, styles/main.css and site.config.json (dist/ and assets/css/main.css are generated, never edit them directly).\n`);
     return false;
   }
-  if (generate && !(relFile.startsWith('content/') && relFile.endsWith('.md'))) {
-    console.error(`  --generate works on a markdown page under content/, not "${relFile}".\n`);
+  if ((generate || convert) && !(relFile.startsWith('content/') && relFile.endsWith('.md'))) {
+    console.error(`  ${generate ? '--generate' : '--from-html'} works on a markdown page under content/, not "${relFile}".\n`);
     return false;
   }
 
   const targetPath = path.join(ROOT, relFile);
   if (!fs.existsSync(targetPath)) {
-    console.error(`  ${relFile} does not exist.\n`);
+    console.error(`  ${relFile} does not exist.${convert ? ' Create the page first (npm run new), then convert the HTML into it.' : ''}\n`);
     return false;
   }
 
@@ -642,25 +814,42 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit')
     return false;
   }
 
-  const entries = generate ? findDraftImages(original) : [];
+  let htmlPage = null;
+  if (convert) {
+    try {
+      htmlPage = loadHtmlPage(source);
+    } catch (error) {
+      console.error(`  Can't convert: ${error.message}.\n`);
+      return false;
+    }
+    console.log(`  Content: ${htmlPage.text.length} characters of text${htmlPage.removed.length ? `, removed ${htmlPage.removed.join(', ')}` : ''}`);
+    for (const src of htmlPage.unavailable) console.log(`  ! image "${src}" — not in this site, Claude will leave it out`);
+  }
+
+  const entries = generate ? findDraftImages(original) : convert ? htmlPage.entries.map(({ value }) => ({ value, index: 0, inFrontmatter: null })) : [];
   for (const value of imageEntries) entries.push({ value, index: Infinity, inFrontmatter: null });
   const seen = new Set();
   const unique = entries.filter(({ value }) => !seen.has(canonicalImage(value)) && seen.add(canonicalImage(value)));
   // A draft may name an image that's still to be added; an edit's --image must exist.
-  const images = collectImages(unique).filter((image) => {
-    if (generate || !image.missing) return true;
-    console.log(`  ! image "${image.ref}" — file not found, skipped entirely`);
-    return false;
-  });
+  const images = collectImages(unique)
+    .filter((image) => {
+      if (generate || !image.missing) return true;
+      console.log(`  ! image "${image.ref}" — file not found, skipped entirely`);
+      return false;
+    })
+    // A converted page's images are named by where they were in the HTML, too.
+    .map((image) => ({ ...image, src: htmlPage?.entries.find(({ value }) => canonicalImage(value) === image.ref)?.src }));
   for (const [i, image] of images.entries()) {
     console.log(`  Image ${i + 1}: ${image.ref}${image.block ? '' : ` (reference only: ${image.why || 'not readable'})`}`);
   }
 
-  const layout = generate ? layoutFor(relFile, parseFrontmatter(original).data) : null;
+  const layout = generate || convert ? layoutFor(relFile, parseFrontmatter(original).data) : null;
   const buildPrompts = (list) =>
     generate
       ? buildGeneratePrompts(relFile, instruction, original, list, layout)
-      : buildEditPrompts(relFile, instruction, original, list);
+      : convert
+        ? buildConvertPrompts(relFile, instruction, original, list, layout, htmlPage)
+        : buildEditPrompts(relFile, instruction, original, list);
   const { systemPrompt, userPrompt, isContent } = buildPrompts(images);
 
   if (!apiKey) {
@@ -672,11 +861,15 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit')
   console.log(`  Model: ${site.automation.model}\n`);
   const reply = await askClaude(buildPrompts, images);
   if (reply.stopReason === 'refusal') {
-    console.error('  Claude declined this request. Rephrase the draft or the instruction and try again.\n');
+    console.error(`  Claude declined this request. Rephrase the ${{ edit: 'instruction', generate: 'draft', convert: 'direction' }[mode]} and try again.\n`);
     return false;
   }
   const raw = stripFence(reply.text);
-  const checked = generate ? generateChecks(original, raw, reply.images) : editChecks(original, raw, isContent);
+  const checked = generate
+    ? generateChecks(original, raw, reply.images)
+    : convert
+      ? convertChecks(original, raw, reply.images, htmlPage)
+      : editChecks(original, raw, isContent);
   const problems = [...checked.problems];
   const { warnings } = checked;
   if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the file is incomplete`);
@@ -686,24 +879,35 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit')
     console.log(raw);
     if (problems.length) console.log(`\n  problem: ${problems.join('\n  problem: ')}`);
     if (warnings.length) console.log(`\n  warning: ${warnings.join('\n  warning: ')}`);
-    if (proposalOut) writeProposal({ relFile, mode, instruction, images: reply.images, raw, problems, warnings });
+    if (proposalOut) writeProposal({ relFile, mode, instruction, images: reply.images, raw, problems, warnings, source: htmlPage?.file });
     return false;
   }
 
   if (problems.length) {
-    console.error(`\n  Refused to write — looked wrong:\n${problems.map((p) => `    - ${p}`).join('\n')}\n\n  Re-run with --dry-run to inspect the output, or rephrase the ${generate ? 'draft' : 'instruction'}.\n`);
+    console.error(`\n  Refused to write — looked wrong:\n${problems.map((p) => `    - ${p}`).join('\n')}\n\n  Re-run with --dry-run to inspect the output, or rephrase the ${{ edit: 'instruction', generate: 'draft', convert: 'direction' }[mode]}.\n`);
     return false;
   }
 
   fs.writeFileSync(targetPath, raw.endsWith('\n') ? raw : `${raw}\n`);
-  recordWork({ command: generate ? 'page:generate' : 'page:edit', file: relFile, instruction: instruction || (generate ? 'turned the draft into the finished page' : '') });
+  recordWork({
+    command: { edit: 'page:edit', generate: 'page:generate', convert: 'page:convert' }[mode],
+    file: relFile,
+    instruction: instruction || defaultLogInstruction(mode, htmlPage?.file),
+  });
   for (const warning of warnings) console.log(`  warning: ${warning}`);
   console.log(`\n  Wrote ${relFile}  (${original.split('\n').length} -> ${raw.split('\n').length} lines)\n`);
   return true;
 }
 
+/** What the work log says a run without an instruction did. */
+function defaultLogInstruction(mode, source) {
+  if (mode === 'generate') return 'turned the draft into the finished page';
+  if (mode === 'convert') return `converted ${path.posix.basename(source || 'an HTML page')} into the page`;
+  return '';
+}
+
 /** Saves a dry-run's proposed file for tools that show it and then write exactly that version. */
-function writeProposal({ relFile, mode, instruction, images, raw, problems, warnings }) {
+function writeProposal({ relFile, mode, instruction, images, raw, problems, warnings, source }) {
   const target = path.resolve(ROOT, String(proposalOut));
   if (!target.startsWith(ROOT + path.sep)) {
     console.error(`  --proposal-out must be inside the repository, not ${proposalOut}.`);
@@ -714,6 +918,7 @@ function writeProposal({ relFile, mode, instruction, images, raw, problems, warn
     mode,
     instruction,
     images: images.map((image) => image.ref),
+    ...(source ? { source } : {}),
     content: raw.endsWith('\n') ? raw : `${raw}\n`,
     problems,
     warnings,
@@ -727,14 +932,14 @@ function writeProposal({ relFile, mode, instruction, images, raw, problems, warn
 
 /* -------------------------------------------------------------------- run */
 
-async function runAdHoc(pageArg, instruction, mode) {
+async function runAdHoc(pageArg, instruction, mode, source) {
   const relFile = resolveFile(pageArg);
   if (!relFile) {
     console.error(`\n  Could not resolve "${pageArg}" to a file.\n`);
     process.exit(1);
   }
 
-  const ok = await applyEdit(relFile, instruction, imageArgs, mode);
+  const ok = await applyEdit(relFile, instruction, imageArgs, mode, source);
   if (!dryRun) {
     console.log(ok ? `  Review with: git diff -- ${relFile}\n  Validate with: npm run check\n` : '');
     process.exit(ok ? 0 : 3);
@@ -762,13 +967,15 @@ async function runQueue() {
 
   for (const job of queue) {
     console.log('  ----------------------------------------');
-    const mode = job.mode === 'generate' ? 'generate' : 'edit';
+    const mode = ['generate', 'convert'].includes(job.mode) ? job.mode : 'edit';
     let ok = false;
     if (mode === 'edit' && !job.instruction) {
       console.error(`  ${job.file}: a queued edit needs an instruction (or "mode": "generate").\n`);
+    } else if (mode === 'convert' && !job.source) {
+      console.error(`  ${job.file}: a queued convert job needs "source": the HTML file to convert.\n`);
     } else {
       const relFile = (job.file && resolveFile(job.file)) || String(job.file || '');
-      ok = await applyEdit(relFile, job.instruction || '', Array.isArray(job.images) ? job.images : [], mode);
+      ok = await applyEdit(relFile, job.instruction || '', Array.isArray(job.images) ? job.images : [], mode, job.source || null);
     }
 
     if (dryRun) {
@@ -798,12 +1005,15 @@ async function runQueue() {
 if (positional.length) {
   const [pageArg, instructionArg] = positional;
   const instruction = instructionArg || (typeof flag('instruction') === 'string' ? flag('instruction') : '');
-  const mode = generateFlag ? 'generate' : 'edit';
-  if (!instruction && mode === 'edit') {
+  const mode = generateFlag ? 'generate' : fromHtml !== undefined ? 'convert' : 'edit';
+  const usable = mode === 'edit' ? Boolean(instruction) : mode === 'generate' ? fromHtml === undefined : typeof fromHtml === 'string';
+  if (!usable) {
     console.error(`
   Usage:
     node scripts/edit-page.js <page> "<instruction>"          edit by instruction
     node scripts/edit-page.js <page> --generate ["<direction>"]  turn the page's draft into the finished page
+    node scripts/edit-page.js <page> --from-html=<file.html> ["<direction>"]
+                                                              convert an existing HTML page into this page
     node scripts/edit-page.js                                 run every queued edit
     node scripts/edit-page.js --list                          show the queue
 `);
@@ -813,7 +1023,7 @@ if (positional.length) {
     console.error('\n  ANTHROPIC_API_KEY is not set. Add it to your environment or repository secrets.\n');
     process.exit(1);
   }
-  runAdHoc(pageArg, instruction, mode).catch((error) => {
+  runAdHoc(pageArg, instruction, mode, typeof fromHtml === 'string' ? fromHtml : null).catch((error) => {
     console.error(`\n  Edit failed: ${error.message}\n`);
     process.exit(1);
   });

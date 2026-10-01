@@ -51,6 +51,8 @@ npm run page:edit:preview                          # same, print only, write not
 npm run page:edit:list                             # list the pending queue, run nothing
 npm run page:generate -- <page> ["<direction>"]    # Claude turns the page's own draft (.md) into the finished page
 npm run page:generate:preview -- <page>            # same, print only, write nothing
+npm run page:edit -- <page> --from-html=<file.html> ["<direction>"]  # Claude converts an existing HTML page into the page
+npm run page:edit:preview -- <page> --from-html=<file.html>         # same, print only, write nothing
 npm run md:edit -- <file.md> "<instruction>"       # edit a markdown file outside content/ with Claude
 npm run md:edit:preview -- <file.md> "<instruction>" # same, print only, write nothing
 npm run md:edit:list                               # list the markdown files md:edit can change
@@ -208,6 +210,41 @@ pages that don't exist, leftover notes, a `# ` heading, banned phrases, a
 draft image that isn't in the repo yet. Queue entries take
 `"mode": "generate"`, and then the instruction may be empty.
 
+**Convert an existing HTML page into a page**
+
+```bash
+npm run new page "About us"
+npm run page:edit:preview -- about-us --from-html=old-site/about.html
+npm run page:edit -- about-us --from-html=old-site/about.html "Put the history table last"
+```
+
+`--from-html=<file>` takes an HTML file inside the repo (up to 2 MB) and
+replaces the page's body with its content, converted to markdown. The target
+must already exist under `content/`, because its frontmatter is kept.
+`scripts/lib/html-source.js` cleans the HTML before Claude sees it. It
+removes scripts, styles, comments and embedded `data:` images. When `<main>`
+holds most of the text, it removes everything outside `<main>`. It also
+removes the old site's header, footer, navigation, sidebars and cookie banners,
+which it finds by tag (`header`, `footer`, `nav`, `aside`), by role (`banner`,
+`contentinfo`, `navigation`, `complementary`) and by class or id
+(`site-header`, `footer`, `navbar`…). A `<header>` or `<footer>` inside `<main>`
+or `<article>` is the content's own (an article's title or date) and stays, but
+navigation goes wherever it is. Claude is told to leave out any chrome that is
+still there, and to keep the page's wording rather than rewrite it. Placeholder
+frontmatter from `npm run new` is filled from the HTML (the meta description,
+the `<h1>`, the intro paragraph). The content is refused if it's over 150,000
+characters once cleaned. Images with http(s) URLs and images whose paths exist
+in the repo are sent as vision input. Relative paths to the old site's files
+are left out, and each one is listed as a warning. These **problems** block the
+write: the same frontmatter, locked-field, partial and cut-off checks as
+`--generate`, and an image that isn't in the HTML or the repo. **Warnings**: a
+page with less than half the HTML's text, an image from the HTML that was
+dropped, links to pages that don't exist, and the list of what was removed.
+The work log records `page:convert`, the proposal has `"mode": "convert"` and
+`"source"`, and queue entries take `"mode": "convert", "source": "<file.html>"`.
+The Twinstack web app detects the feature by searching `edit-page.js` for the
+literal `--from-html`.
+
 Pass `--image=<path|url>` (repeatable) to give Claude images to look at and
 place in the page. A path is a file in the repo, such as
 `assets/img/uploads/team.jpg`, which the page references as
@@ -218,7 +255,8 @@ entries accept an `images` list. With `--dry-run`,
 (`file`, `mode`, `content`, `problems`, `warnings`…). The Twinstack web app
 uses it to show the preview and then write exactly that version, and it
 detects what a copy supports by searching `edit-page.js` for the literal
-strings `--proposal-out` and `--generate`, so keep both in the file.
+strings `--proposal-out`, `--generate` and `--from-html`, so keep all three in
+the file.
 `ANTHROPIC_BASE_URL` overrides the API host for a proxy or a mock.
 
 Run with no `<page>` argument and it works through the queue in
