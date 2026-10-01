@@ -12,6 +12,9 @@ content and JSON data are rendered through logic-light HTML templates into
   adding Tailwind classes.
 - Consult [EVERYTHING-YOU-NEED.md](EVERYTHING-YOU-NEED.md) for operating
   procedures and deployment context when relevant.
+- Read [knowledge/notes.md](knowledge/notes.md) and `knowledge/work-log.md`
+  (if present) before changing content: the owner's standing notes and what
+  earlier Claude runs changed.
 
 ## Working rules
 

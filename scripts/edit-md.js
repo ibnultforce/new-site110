@@ -32,13 +32,16 @@
  * The Twinstack web app installs this file, with scripts/lib/schedule-jobs.js,
  * into site copies made before it existed. So it imports nothing else from
  * scripts/lib/ except ROOT and readJson, which every copy has, and keeps its
- * own API call and site-tree parser.
+ * own API call and site-tree parser. lib/knowledge.js (the notes and work log
+ * in knowledge/) is loaded only if the copy has it.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, readJson } from './lib/content.js';
 import { parseJobs } from './lib/schedule-jobs.js';
+
+const knowledge = await import('./lib/knowledge.js').catch(() => null);
 
 const MAX_TOKENS = 16000;
 // Claude writes the whole file back, so it has to fit comfortably in one reply.
@@ -167,6 +170,8 @@ function buildPrompts(rel, instruction, original) {
 Return the complete updated file between <file> and </file>, and nothing else: no commentary before or after, no \`\`\` fence around it.
 
 Change only what the instruction asks for. Keep everything else exactly as it is: headings, wording, line wrapping, lists, links, code blocks, frontmatter and any JSON. Match the file's existing voice. Use British spelling, sentence case headings and plain verbs; no exclamation marks. Don't invent facts, statistics or client names: if the instruction needs a detail the file doesn't have, write around it.${notes ? `\n\n${notes}` : ''}`;
+  // A file in knowledge/ is already the whole prompt's subject, so it isn't sent twice.
+  const withKnowledge = knowledge ? knowledge.withKnowledge(systemPrompt, { skip: knowledge.isKnowledgeFile(rel) }) : systemPrompt;
 
   const userPrompt = `File: ${rel}
 
@@ -175,7 +180,7 @@ Instruction: ${instruction}
 <current_file>
 ${original}
 </current_file>`;
-  return { systemPrompt, userPrompt };
+  return { systemPrompt: withKnowledge, userPrompt };
 }
 
 /** The file from Claude's reply, and whether it was wrapped the way it was asked to be. */
@@ -307,6 +312,7 @@ async function run({ rel, full }, instruction) {
   }
 
   fs.writeFileSync(full, updated);
+  knowledge?.recordWork({ command: 'md:edit', file: rel, instruction });
   for (const warning of warnings) console.log(`  warning: ${warning}`);
   console.log(`  Wrote ${rel}  (${original.split('\n').length} -> ${updated.split('\n').length} lines)`);
   console.log(`  Review with: git diff -- ${rel}\n`);

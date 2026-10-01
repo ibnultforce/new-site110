@@ -61,6 +61,7 @@ import path from 'node:path';
 import { ROOT, readJson, loadSite } from './lib/content.js';
 import { parseFrontmatter } from './lib/markdown.js';
 import { bannedPhraseWarnings, requestClaude, resolveImages, stripFence } from './lib/claude-writer.js';
+import { knowledgePrompt, recordWork } from './lib/knowledge.js';
 
 const COMMANDS_PATH = path.join(ROOT, 'scripts/page-commands.json');
 const DEFAULT_QUEUE_COMMENT = 'Queue of pending edits for `npm run page:edit` (no arguments). Each entry is one job: { file, instruction }, optionally with "images": [...] and "mode": "generate" (turn the file\'s own draft into the finished page; the instruction may then be empty). Running with no arguments processes every entry in order, writes each one, then removes it from this queue. Add entries by hand any time; running `npm run page:edit -- <page> "<instruction>"` with arguments applies that edit immediately instead and never touches this file.';
@@ -216,6 +217,12 @@ const HOUSE_RULES = `HOUSE RULES (from CLAUDE.md — follow these exactly)
 - Markdown content files: do not add a leading "# Title" heading — the layout renders the title separately.
 - Utilities belong inline in templates; only touch styles/main.css for tokens or patterns already repeated three or more times elsewhere, and never touch assets/css/main.css (it is compiled output).`;
 
+/** knowledge/ (the owner's notes and the work log) as a prompt section ending in a blank line, or ''. */
+function knowledgeSection() {
+  const section = knowledgePrompt();
+  return section ? `${section}\n\n` : '';
+}
+
 /* ------------------------------------------------------------ edit prompt */
 
 function buildEditPrompts(relFile, instruction, original, images = []) {
@@ -236,7 +243,7 @@ ${contextNote}
 ${HOUSE_RULES}
 - Preserve everything about the file that the instruction doesn't ask you to change: frontmatter fields and their order, unrelated sections, existing classes and structure, indentation style.
 
-OUTPUT
+${knowledgeSection()}OUTPUT
 Return only the raw contents of the new file, starting from its very first character (frontmatter's opening "---" for a content file). No commentary, no explanation, no surrounding code fence.`;
 
   const userPrompt = `File: ${relFile}
@@ -332,7 +339,7 @@ This file's body is rendered as a template BEFORE markdown conversion, so templa
 
 ${HOUSE_RULES}
 
-OUTPUT
+${knowledgeSection()}OUTPUT
 Before answering, check each sentence, list item and frontmatter value against the draft: if it states something the draft doesn't (a detail, qualifier, promise or next step), remove it. Then return only the raw contents of the finished file, starting with the opening "---" of the frontmatter. No commentary, no explanation, no surrounding code fence.`;
 
   const userPrompt = `File: ${relFile}
@@ -689,6 +696,7 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit')
   }
 
   fs.writeFileSync(targetPath, raw.endsWith('\n') ? raw : `${raw}\n`);
+  recordWork({ command: generate ? 'page:generate' : 'page:edit', file: relFile, instruction: instruction || (generate ? 'turned the draft into the finished page' : '') });
   for (const warning of warnings) console.log(`  warning: ${warning}`);
   console.log(`\n  Wrote ${relFile}  (${original.split('\n').length} -> ${raw.split('\n').length} lines)\n`);
   return true;

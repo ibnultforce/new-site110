@@ -43,6 +43,7 @@ import { scaffoldBody } from './lib/scaffold-templates.js';
 import { updateChangelog, appendToSiteTree } from './lib/scaffold-tree-runner.js';
 import { findJobsBlock, sanitizeHandEditedJson } from './lib/schedule-jobs.js';
 import { callClaude, stripFence, resolveImages, stripBrokenLinks, bannedPhraseWarnings } from './lib/claude-writer.js';
+import { knowledgePrompt, recordWork } from './lib/knowledge.js';
 
 const SCHEDULE_PATH = path.join(ROOT, 'scripts/scaffold-schedule.md');
 
@@ -281,6 +282,7 @@ function buildPrompts(job, skeleton, images) {
   const imageList = images.length
     ? images.map((img) => `- ${img.ref}${img.block ? '' : '  (reference only — not readable as an image)'}`).join('\n')
     : 'None supplied.';
+  const knowledge = knowledgePrompt();
 
   const systemPrompt = `You write one new page for ${site.name}'s site (${site.description}). You are given a brief, and usually source notes and images, and must write the complete file: real frontmatter values and a real, useful markdown body — not placeholder text.
 
@@ -305,7 +307,7 @@ Link to other existing pages only where it genuinely helps the reader, written a
 ${internalUrls.join('\n')}
 Never invent a URL. Adding no links at all is fine.
 
-OUTPUT
+${knowledge ? `${knowledge}\n\n` : ''}OUTPUT
 Return only the raw contents of the new file, starting with the opening "---" of the frontmatter. No commentary, no surrounding code fence.`;
 
   const userText = `Title: ${job.title}
@@ -427,6 +429,7 @@ async function runJob(job, stagedUrlMap) {
 
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`);
+  recordWork({ command: 'scaffold:schedule', file: resolved.file, instruction: `wrote "${job.title}": ${job.description || ''}` });
   console.log(`  + ${resolved.file}`);
   return true;
 }

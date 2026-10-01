@@ -24,6 +24,7 @@ templates/partials/  shared fragments (header, footer, cards, CTA)
 styles/main.css      Tailwind source: theme tokens, utilities, component layer
 assets/              compiled CSS, JS, images — copied to dist/assets
 scripts/             build, dev server, checker, scaffolder, blog writer, page editor
+knowledge/           what Claude knows from previous work: owner's notes + automatic work log
 dist/                generated output; never edit, never commit
 ```
 
@@ -121,13 +122,15 @@ build time.
    the footer are generated from collections. Adding a markdown file is the
    whole job.
 4. **Run `npm run check` before saying you are done.** It builds and then fails
-   on broken internal links and duplicate URLs.
-5. **Markdown bodies are templated first, then rendered.** `{{ site.contact.email }}`
+   on broken internal links and duplicate URLs.5. **Markdown bodies are templated first, then rendered.** `{{ site.contact.email }}`
    and `{{> stats }}` work inside content files. Escape literal braces if a post
    needs to show template syntax.
 6. **Do not invent facts.** Statistics, client names, release numbers and
    Salesforce behaviour need a source. If unsure, describe the shape of the
    thing rather than quantifying it.
+7. **Read `knowledge/notes.md` and `knowledge/work-log.md` before changing
+   content.** They hold the owner's standing instructions and what earlier
+   Claude runs changed. Follow the notes; treat the log as history, not fact.
 
 ## Common tasks
 
@@ -272,6 +275,37 @@ anything. Both scaffold commands need `ANTHROPIC_API_KEY`.
 Both scaffold commands append to `CHANGELOG.md` afterwards (via
 `scripts/lib/changelog.js`); `npm run changelog` regenerates it from `git log`
 directly. Treat `CHANGELOG.md` as generated — like `dist/`, don't hand-edit it.
+
+**What Claude knows from previous work (`knowledge/`)**
+
+Every Claude request (`page:edit`, `page:generate`, `md:edit`,
+`scaffold:schedule`) sends two files along in its system prompt, through
+`scripts/lib/knowledge.js`:
+
+- `knowledge/notes.md`: the owner's standing notes (voice, audience,
+  decisions, things to avoid). Hand-edit it, or use
+  `npm run md:edit -- knowledge/notes.md "<instruction>"`. HTML comments and
+  empty sections aren't sent, so the starter file sends nothing. Only the
+  first 12,000 characters are sent.
+- `knowledge/work-log.md`: one line per change Claude wrote, appended
+  automatically after the write (`- <date> · <command> · <file> · <instruction>`).
+  Once it passes 60 entries, all but the newest 30 move to
+  `knowledge/archive/work-log-<date>.md`, which is never sent. Previews
+  (`--dry-run`) log nothing, and neither do edits to `knowledge/` itself.
+
+Claude is told the notes are instructions and the log is history: the current
+files win over the log, and the log is never a source of facts.
+
+The committed log only holds the checked-out branch's lines, so the Twinstack
+web app also keeps each site's log in its database, where a change counts as
+soon as it's made, not when its pull request merges. Before every Claude run it
+writes the latest log to a file in `.git/` and sets `TWINSTACK_WORK_LOG` to
+that path. `knowledge.js` then reads the prompt's log from that file and adds
+new entries to it as well as to `knowledge/work-log.md`. The web app also logs
+changes it applies from a preview (`server/src/site-files.js`), so the entry
+format and the two limits live in both places. `edit-md.js` imports `knowledge.js`
+optionally, because the web app installs `edit-md.js` into older copies on its
+own.
 
 ## Frontmatter reference
 
