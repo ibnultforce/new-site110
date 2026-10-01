@@ -95,14 +95,19 @@ function attribute(attrs, name) {
   return m ? (m[2] ?? m[3] ?? m[4] ?? '') : null;
 }
 
-/** Why an element is site chrome ("header", "navigation"…), or null to keep it. */
-function chromeReason(name, attrs, inContent) {
+/**
+ * Why an element is site chrome ("header", "navigation"…), or null to keep it.
+ * `atEdge` is true above the page's main heading or below its last heading:
+ * a <nav> there is the old site's menu or footer links, while one between
+ * the page's headings (a section bar, a table of contents) is the page's own.
+ */
+function chromeReason(name, attrs, inContent, atEdge) {
   const role = (attribute(attrs, 'role') || '').toLowerCase();
   const tokens = `${attribute(attrs, 'class') || ''} ${attribute(attrs, 'id') || ''}`.split(/\s+/).filter(Boolean);
 
-  if (name === 'nav' || role === 'navigation') return 'navigation';
   if (tokens.some((t) => /^breadcrumbs?$/i.test(t))) return 'navigation';
   if (tokens.some((t) => /^cookie/i.test(t)) || role === 'alertdialog') return 'cookie banner';
+  if ((name === 'nav' || role === 'navigation') && atEdge && !inContent) return 'navigation';
   if (inContent) return null;
 
   if (name === 'header' || role === 'banner') return 'header';
@@ -127,6 +132,9 @@ function chromeReason(name, attrs, inContent) {
  */
 function removeChrome(html, removed) {
   const tag = /<(\/?)([a-zA-Z][\w-]*)\b([^>]*)>/g;
+  const firstHeading = html.search(/<h1\b/i);
+  const headings = [...html.matchAll(/<h[1-3]\b/gi)];
+  const lastHeading = headings.length ? headings.at(-1).index : -1;
   let out = '';
   let last = 0;
   let content = 0;
@@ -139,7 +147,8 @@ function removeChrome(html, removed) {
       continue;
     }
     if (closing || whole.endsWith('/>')) continue;
-    const reason = chromeReason(name, attrs, content > 0);
+    const atEdge = firstHeading < 0 || m.index < firstHeading || m.index > lastHeading;
+    const reason = chromeReason(name, attrs, content > 0, atEdge);
     if (!reason) continue;
     const end = elementEnd(html, rawName, m.index + whole.length);
     if (end < 0) continue; // unclosed: leave it to Claude rather than cut the rest of the page
@@ -264,6 +273,14 @@ export function cleanHtml(source, { keepStyles = false, prefix = '' } = {}) {
 
   if (keepStyles) {
     const styled = styledTags(html.trim(), prefix);
+    // What the old <html> and <body> carried: their rules ("body.home .x") now describe the wrapper.
+    const rootClasses = new Set();
+    const rootIds = new Set();
+    for (const m of source.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<(?:html|body)\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
+      for (const c of (attribute(m[1], 'class') || '').split(/\s+/).filter(Boolean)) rootClasses.add(c);
+      const id = attribute(m[1], 'id');
+      if (id) rootIds.add(id);
+    }
     return {
       title,
       description,
@@ -271,6 +288,8 @@ export function cleanHtml(source, { keepStyles = false, prefix = '' } = {}) {
       text: visibleText(styled.html),
       classes: styled.classes,
       ids: styled.ids,
+      rootClasses,
+      rootIds,
       removed: removedList(removed),
     };
   }
@@ -312,20 +331,104 @@ export function rewriteImages(html, resolve) {
 
 /**
  * The page's stylesheets in cascade order: { inline: css } for each <style>
- * block and { href } for each <link rel="stylesheet">.
+ * block and { href } for each <link rel="stylesheet">, each with its `media`
+ * when it has one other than "all" (a print stylesheet must stay print-only).
+ * Alternate stylesheets and disabled ones are left out, as browsers do.
  */
 export function stylesheetsIn(source) {
   const html = source.replace(/<!--[\s\S]*?-->/g, '');
   const sheets = [];
-  for (const m of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>|<link\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
-    if (m[1] !== undefined) {
-      if (m[1].trim()) sheets.push({ inline: m[1] });
-    } else if (/\bstylesheet\b/i.test(attribute(m[2], 'rel') || '')) {
-      const href = attribute(m[2], 'href');
-      if (href) sheets.push({ href: href.trim() });
+  for (const m of html.matchAll(/<style\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/style\s*>|<link\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
+    const attrs = m[1] ?? m[3];
+    const media = (attribute(attrs, 'media') || '').trim();
+    const extra = media && !/^all$/i.test(media) ? { media } : {};
+    if (m[2] !== undefined) {
+      if (m[2].trim()) sheets.push({ inline: m[2], ...extra });
+      continue;
     }
+    const rel = (attribute(attrs, 'rel') || '').toLowerCase();
+    if (!/\bstylesheet\b/.test(rel) || /\balternate\b/.test(rel) || /(^|\s)disabled(\s|=|$)/i.test(attrs)) continue;
+    const href = attribute(attrs, 'href');
+    if (href) sheets.push({ href: href.trim(), ...extra });
   }
   return sheets;
+}
+
+const FONT_SIZES = { 1: '10px', 2: '13px', 3: '16px', 4: '18px', 5: '24px', 6: '32px', 7: '48px' };
+const length = (v) => (/^\d+(\.\d+)?$/.test(v) ? `${v}px` : /^\d+(\.\d+)?%$/.test(v) ? v : null);
+
+/**
+ * Old HTML attributes that browsers turn into styling (<font color>, <table
+ * border cellpadding>, bgcolor, align, valign, width/height on images and
+ * cells…) as zero-specificity CSS rules for `scope`. The copy needs them as
+ * rules because its isolation (`all: revert`) also reverts those attribute
+ * styles. Placed after the isolation, they rank like browsers rank attribute
+ * styling: above defaults, below every real CSS rule. `bodyAttrs` (the old
+ * <body>'s bgcolor, text, background) apply to the wrapper.
+ */
+export function presentationalHints(html, scope, bodyAttrs = '') {
+  const rules = new Map();
+  const add = (selector, decl) => {
+    if (!decl) return;
+    rules.set(selector, `${rules.get(selector) || ''}${decl};`);
+  };
+  const sel = (inner) => `:where(${scope} ${inner})`;
+  const q = (v) => JSON.stringify(v);
+
+  for (const [, rawName, attrs] of html.matchAll(START_TAG)) {
+    const name = rawName.toLowerCase();
+    const get = (a) => attribute(attrs, a);
+    const self = (a) => `${name}[${a}=${q(get(a))}]`;
+    const color = get('color');
+    if (name === 'font') {
+      if (color) add(sel(self('color')), `color:${color}`);
+      if (get('face')) add(sel(self('face')), `font-family:${get('face')}`);
+      if (FONT_SIZES[get('size')]) add(sel(self('size')), `font-size:${FONT_SIZES[get('size')]}`);
+    }
+    if (get('bgcolor')) add(sel(self('bgcolor')), `background-color:${get('bgcolor')}`);
+    if (get('background') && /^(https?:)?\/\/|^\//.test(get('background'))) add(sel(self('background')), `background-image:url(${q(get('background'))})`);
+    const align = (get('align') || '').toLowerCase();
+    if (align) {
+      if (name === 'table') add(sel(self('align')), align === 'center' ? 'margin-left:auto;margin-right:auto' : /^(left|right)$/.test(align) ? `float:${align}` : '');
+      else if (/^(img|iframe|object|embed|video)$/.test(name)) add(sel(self('align')), /^(left|right)$/.test(align) ? `float:${align}` : /^(top|middle|bottom|baseline)$/.test(align) ? `vertical-align:${align}` : '');
+      else if (/^(div|p|h[1-6]|td|th|tr|thead|tbody|tfoot|caption|legend|center)$/.test(name)) add(sel(self('align')), `text-align:${align === 'center' ? '-webkit-center' : align}`);
+    }
+    const valign = (get('valign') || '').toLowerCase();
+    if (valign && /^(td|th|tr|thead|tbody|tfoot|col)$/.test(name)) add(sel(self('valign')), `vertical-align:${valign}`);
+    const w = length(get('width') || '');
+    const h = length(get('height') || '');
+    if (w && /^(img|table|td|th|col|colgroup|iframe|video|canvas|embed|object|hr)$/.test(name)) add(sel(self('width')), `width:${w}`);
+    if (h && /^(img|table|td|th|tr|iframe|video|canvas|embed|object)$/.test(name)) add(sel(self('height')), `height:${h}`);
+    if (/^(img|video|canvas)$/.test(name) && /^\d+$/.test(get('width') || '') && /^\d+$/.test(get('height') || '')) {
+      add(sel(`${self('width')}${`[height=${q(get('height'))}]`}`), `aspect-ratio:auto ${get('width')} / ${get('height')}`);
+    }
+    if (get('nowrap') !== null && /^(td|th)$/.test(name)) add(sel(`${name}[nowrap]`), 'white-space:nowrap');
+    if (name === 'table') {
+      const border = get('border');
+      if (border !== null) {
+        const n = /^\d+$/.test(border) ? Number(border) : 1;
+        if (n > 0) {
+          add(sel(self('border')), `border-width:${n}px;border-style:outset`);
+          add(sel(`${self('border')} > * > tr > td, ${scope} ${self('border')} > * > tr > th`), 'border-width:1px;border-style:inset');
+        }
+      }
+      if (/^\d+$/.test(get('cellpadding') || '')) add(sel(`${self('cellpadding')} > * > tr > td, ${scope} ${self('cellpadding')} > * > tr > th`), `padding:${get('cellpadding')}px`);
+      if (/^\d+$/.test(get('cellspacing') || '')) add(sel(self('cellspacing')), `border-spacing:${get('cellspacing')}px`);
+    }
+  }
+
+  const body = [];
+  if (attribute(bodyAttrs, 'bgcolor')) body.push(`background-color:${attribute(bodyAttrs, 'bgcolor')}`);
+  if (attribute(bodyAttrs, 'text')) body.push(`color:${attribute(bodyAttrs, 'text')}`);
+  if (/^(https?:)?\/\/|^\//.test(attribute(bodyAttrs, 'background') || '')) body.push(`background-image:url(${q(attribute(bodyAttrs, 'background'))})`);
+  const out = [...rules].map(([selector, decl]) => `${selector} { ${decl} }`);
+  if (body.length) out.unshift(`:where(${scope}) { ${body.join(';')}; }`);
+  return out;
+}
+
+/** The attributes of the page's <body> tag, as written. */
+export function bodyAttributes(source) {
+  return /<body\b((?:[^>"']|"[^"]*"|'[^']*')*)>/i.exec(source.replace(/<!--[\s\S]*?-->/g, ''))?.[1] || '';
 }
 
 /**

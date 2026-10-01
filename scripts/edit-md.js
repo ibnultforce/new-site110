@@ -246,7 +246,18 @@ function checks(rel, original, updated) {
 
 /* ------------------------------------------------------------------- run */
 
-function writeProposal({ rel, instruction, content, problems, warnings }) {
+/**
+ * The work-log summary of a change, when the copy's lib/knowledge.js can write
+ * one (older ones can't, and changes to knowledge/ aren't logged). Also made
+ * for a preview with --proposal-out: the web app logs the change on apply.
+ */
+function summarize(rel, instruction, before, after) {
+  if (!knowledge?.summarizeChange || knowledge.isKnowledgeFile(rel)) return Promise.resolve([]);
+  console.log('  Writing the work-log summary…');
+  return knowledge.summarizeChange({ apiKey, model: site.automation.model, command: 'md:edit', file: rel, instruction, before, after });
+}
+
+function writeProposal({ rel, instruction, content, problems, warnings, summary = [] }) {
   const target = path.resolve(ROOT, String(proposalOut));
   if (!target.startsWith(ROOT + path.sep)) {
     console.error(`  --proposal-out must be inside the repository, not ${proposalOut}.`);
@@ -260,6 +271,7 @@ function writeProposal({ rel, instruction, content, problems, warnings }) {
     content,
     problems,
     warnings,
+    ...(summary.length ? { summary } : {}),
     model: site.automation.model,
     createdAt: new Date().toISOString(),
   };
@@ -301,7 +313,7 @@ async function run({ rel, full }, instruction) {
     console.log(updated);
     if (problems.length) console.log(`  problem: ${problems.join('\n  problem: ')}`);
     if (warnings.length) console.log(`  warning: ${warnings.join('\n  warning: ')}`);
-    if (proposalOut) writeProposal({ rel, instruction, content: updated, problems, warnings });
+    if (proposalOut) writeProposal({ rel, instruction, content: updated, problems, warnings, summary: await summarize(rel, instruction, original, updated) });
     console.log('');
     return 0;
   }
@@ -312,7 +324,7 @@ async function run({ rel, full }, instruction) {
   }
 
   fs.writeFileSync(full, updated);
-  knowledge?.recordWork({ command: 'md:edit', file: rel, instruction });
+  knowledge?.recordWork({ command: 'md:edit', file: rel, instruction, summary: await summarize(rel, instruction, original, updated) });
   for (const warning of warnings) console.log(`  warning: ${warning}`);
   console.log(`  Wrote ${rel}  (${original.split('\n').length} -> ${updated.split('\n').length} lines)`);
   console.log(`  Review with: git diff -- ${rel}\n`);

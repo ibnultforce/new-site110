@@ -24,6 +24,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Public+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/assets/css/main.css">
+{{# each page.fonts }}<link rel="stylesheet" href="{{ this }}">{{/ each }}
 {{# if page.stylesheet }}<link rel="stylesheet" href="{{ page.stylesheet }}">{{/ if }}
 
 <script type="application/ld+json">{{{ jsonLd }}}</script>

@@ -81,13 +81,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, readJson, loadSite } from './lib/content.js';
-import { parseFrontmatter } from './lib/markdown.js';
+import { parseFrontmatter, renderMarkdown } from './lib/markdown.js';
+import { TemplateEngine } from './lib/template.js';
+import { renderCheck } from './lib/render-check.js';
 import { bannedPhraseWarnings, requestClaude, resolveImages, stripFence } from './lib/claude-writer.js';
-import { knowledgePrompt, recordWork } from './lib/knowledge.js';
+import { knowledgePrompt, recordWork, summarizeChange } from './lib/knowledge.js';
 import {
   MAX_CLEAN_CHARS,
   asRawBlock,
+  bodyAttributes,
   cleanHtml,
+  presentationalHints,
   htmlImages,
   readCssSource,
   readHtmlSource,
@@ -95,7 +99,7 @@ import {
   stylesheetsIn,
   visibleText,
 } from './lib/html-source.js';
-import { scopeCss } from './lib/css-scope.js';
+import { detectReveal, scaleInlineRem, scopeCss } from './lib/css-scope.js';
 
 const COMMANDS_PATH = path.join(ROOT, 'scripts/page-commands.json');
 const DEFAULT_QUEUE_COMMENT = 'Queue of pending edits for `npm run page:edit` (no arguments). Each entry is one job: { file, instruction }, optionally with "images": [...] and "mode": "generate" (turn the file\'s own draft into the finished page; the instruction may then be empty). Running with no arguments processes every entry in order, writes each one, then removes it from this queue. Add entries by hand any time; running `npm run page:edit -- <page> "<instruction>"` with arguments applies that edit immediately instead and never touches this file.';
@@ -121,6 +125,7 @@ const proposalOut = flag('proposal-out');
 const fromHtml = flag('from-html');
 const keepStylesFlag = Boolean(flag('keep-styles'));
 const cssArgs = argv.filter((a) => a.startsWith('--css=')).map((a) => a.slice('--css='.length));
+const noRenderCheck = Boolean(flag('no-render-check'));
 
 const site = readJson(path.join(ROOT, 'site.config.json'));
 const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -525,14 +530,23 @@ function importedStylesheet(relFile) {
 const IMPORT_SCOPE = 'imported-page';
 const IMPORT_PREFIX = 'imp-';
 const MAX_IMPORTED_CSS = 600 * 1024;
-// Web-font services whose stylesheets only declare fonts, so they're kept as an @import.
+// Web-font services whose stylesheets only declare fonts, so the page loads them as they are.
 const FONT_STYLESHEET = /^(https?:)?\/\/(fonts\.googleapis\.com|fonts\.bunny\.net|use\.typekit\.net|api\.fontshare\.com)\//i;
+
+/** Points an <img> at what the site can show: URLs as they are, repo files as "/…", anything else null. */
+function siteImage(src) {
+  const value = src.startsWith('//') ? `https:${src}` : src;
+  if (/^https?:\/\//i.test(value)) return value;
+  const relative = path.posix.normalize(value.split(/[?#]/)[0].replace(/^\/+/, '').replace(/^\.\//, ''));
+  if (!relative.startsWith('../') && relative.split('/')[0] !== '.git' && fs.existsSync(path.join(ROOT, relative))) return `/${relative}`;
+  return null;
+}
 
 /**
  * --keep-styles: the body (the old page's HTML in one raw block, inside the
- * scope wrapper) and the scoped stylesheet. `cssFiles` stand in for the page's
- * linked stylesheets: one whose name matches a <link href> takes that link's
- * place in the cascade, and the rest come first.
+ * scope wrapper), the scoped stylesheet and the web fonts it needs. `cssFiles`
+ * stand in for the page's linked stylesheets: one whose name matches a
+ * <link href> takes that link's place in the cascade, and the rest come first.
  */
 function buildStyledPage(source, cssFiles, relFile) {
   const { file, html } = readHtmlSource(source);
@@ -541,13 +555,10 @@ function buildStyledPage(source, cssFiles, relFile) {
 
   const warnings = [];
   const unavailable = [];
-  const body = rewriteImages(page.html, (src) => {
-    const value = src.startsWith('//') ? `https:${src}` : src;
-    if (/^https?:\/\//i.test(value)) return value;
-    const relative = path.posix.normalize(value.split(/[?#]/)[0].replace(/^\/+/, '').replace(/^\.\//, ''));
-    if (!relative.startsWith('../') && relative.split('/')[0] !== '.git' && fs.existsSync(path.join(ROOT, relative))) return `/${relative}`;
-    unavailable.push(src);
-    return null;
+  let body = rewriteImages(page.html, (src) => {
+    const resolved = siteImage(src);
+    if (resolved === null) unavailable.push(src);
+    return resolved;
   });
   for (const src of [...new Set(unavailable)]) {
     warnings.push(`left out ${src}: it isn't in this site. Upload the image and add it to the page if it's needed`);
@@ -560,19 +571,22 @@ function buildStyledPage(source, cssFiles, relFile) {
   const uploads = cssFiles.map((f) => readCssSource(f));
   const used = new Set();
   const sheets = [];
+  const fonts = [];
+  const inMedia = (css, media) => (media ? `@media ${media} {\n${css}\n}` : css);
   for (const entry of stylesheetsIn(html)) {
     if (entry.inline !== undefined) {
-      sheets.push({ name: 'inline <style>', css: entry.inline });
+      sheets.push({ name: 'inline <style>', css: inMedia(entry.inline, entry.media) });
       continue;
     }
     const base = path.posix.basename(entry.href.split(/[?#]/)[0]).toLowerCase();
     const match = uploads.find((u, i) => !used.has(i) && path.posix.basename(u.file).toLowerCase() === base);
     if (match) {
       used.add(uploads.indexOf(match));
-      sheets.push({ name: path.posix.basename(match.file), css: match.css });
+      sheets.push({ name: path.posix.basename(match.file), css: inMedia(match.css, entry.media) });
     } else if (FONT_STYLESHEET.test(entry.href)) {
-      // Only @font-face rules, so they're safe to load as they are.
-      sheets.push({ name: 'web fonts', css: `@import url("${entry.href.replace(/^\/\//, 'https://').replace(/"/g, '%22')}");` });
+      // Only @font-face rules: loaded from the page's <head> like the original did, so text doesn't
+      // show in fallback fonts first.
+      fonts.push(entry.href.replace(/^\/\//, 'https://'));
     } else if (!/^https?:|^\/\//i.test(entry.href)) {
       warnings.push(`the page links ${entry.href}, which wasn't uploaded, so its styles are missing. Upload it with the HTML`);
     } else {
@@ -580,32 +594,187 @@ function buildStyledPage(source, cssFiles, relFile) {
     }
   }
   const unmatched = uploads.filter((_, i) => !used.has(i)).map((u) => ({ name: path.posix.basename(u.file), css: u.css }));
-  const scoped = scopeCss([...unmatched, ...sheets], { scope: `.${IMPORT_SCOPE}`, prefix: IMPORT_PREFIX, classes: page.classes, ids: page.ids });
+  const allSheets = [...unmatched, ...sheets];
+  const reveal = detectReveal(allSheets, page.classes);
+  const scoped = scopeCss(allSheets, {
+    scope: `.${IMPORT_SCOPE}`, prefix: IMPORT_PREFIX, classes: page.classes, ids: page.ids,
+    rootClasses: page.rootClasses, rootIds: page.rootIds, reveal,
+    hints: presentationalHints(body, `.${IMPORT_SCOPE}`, bodyAttributes(html)),
+  });
+  body = scaleInlineRem(body, scoped.remFactor);
   warnings.push(...scoped.warnings);
   if (!scoped.rules) warnings.push("no CSS rules apply to this page's content, so it will show with browser default styles");
   if (scoped.css.length > MAX_IMPORTED_CSS) throw new Error(`the page's CSS is over ${MAX_IMPORTED_CSS / 1024} KB even after unused rules are removed`);
   if (page.removed.length) warnings.push(`removed from the HTML: ${page.removed.join(', ')}`);
 
+  // The old <html>/<body> classes now belong to the wrapper, so their rules still apply.
+  const wrapperClass = [IMPORT_SCOPE, ...[...page.rootClasses].map((c) => IMPORT_PREFIX + c)].join(' ');
   return {
     file,
+    html,
+    uploads,
     title: page.title,
     description: page.description,
     removed: page.removed,
-    body: `<div class="${IMPORT_SCOPE}">\n${asRawBlock(body)}\n</div>\n`,
+    body: `<div class="${wrapperClass}"${revealAttributes(reveal, html)}>\n${asRawBlock(body)}\n</div>\n`,
+    reveal,
+    fonts: [...new Set(fonts)],
     stylesheet: { file: importedStylesheet(relFile), content: `/* Imported with ${path.posix.basename(file)} by scripts/edit-page.js --keep-styles. Scoped to .${IMPORT_SCOPE}; regenerate it by converting again. */\n${scoped.css}` },
     rules: scoped.rules,
+    hoverClasses: hoverClassesIn(allSheets),
     warnings,
   };
 }
 
-/** Claude's frontmatter (with "stylesheet" set) followed by the copied body. */
+/** Classes the CSS gives a :hover state, for the render check. */
+function hoverClassesIn(sheets) {
+  const found = new Set();
+  for (const { css } of sheets) for (const m of css.matchAll(/\.([\w-]+)(?:[.:\w-]*):hover\b/g)) found.add(m[1]);
+  return [...found];
+}
+
+/**
+ * The wrapper's data-reveal-* attributes, which assets/js/site.js reads to play
+ * back the page's scroll-reveal effect. The trigger settings come from the
+ * page's own script when it uses the common forms (an IntersectionObserver's
+ * rootMargin and threshold, and a "(i % n) * ms" transition-delay stagger).
+ */
+function revealAttributes(reveal, html) {
+  if (!reveal) return '';
+  const scripts = [...html.matchAll(/<script\b(?![^>]*\btype\s*=\s*["']?application\/(?:ld\+)?json)[^>]*>([\s\S]*?)<\/script\s*>/gi)].map((m) => m[1]).join('\n');
+  const attrs = {
+    'data-reveal': IMPORT_PREFIX + reveal.target,
+    'data-reveal-root': IMPORT_PREFIX + reveal.root,
+    'data-reveal-state': IMPORT_PREFIX + reveal.state,
+  };
+  const margin = /rootMargin\s*:\s*["']([-\d.px%\s]+)["']/.exec(scripts);
+  const threshold = /threshold\s*:\s*([\d.]+)/.exec(scripts);
+  const stagger = /transitionDelay\s*=\s*\(\s*\w+\s*%\s*(\d+)\s*\)\s*\*\s*(\d+)/.exec(scripts);
+  if (margin) attrs['data-reveal-margin'] = margin[1].trim();
+  if (threshold) attrs['data-reveal-threshold'] = threshold[1];
+  if (stagger) attrs['data-reveal-stagger'] = `${stagger[1]}x${stagger[2]}`;
+  return Object.entries(attrs).map(([k, v]) => ` ${k}="${v.replace(/"/g, '')}"`).join('');
+}
+
+/** Frontmatter lines without the given top-level keys (and their list items). */
+function withoutKeys(lines, keys) {
+  const out = [];
+  let skipping = false;
+  for (const line of lines) {
+    const key = /^([A-Za-z0-9_.-]+)\s*:/.exec(line)?.[1];
+    if (key) skipping = keys.includes(key);
+    else if (!/^\s/.test(line)) skipping = false;
+    if (!skipping) out.push(line);
+  }
+  return out;
+}
+
+/** Claude's frontmatter (with "stylesheet", "fonts" and "hideCta" set) followed by the copied body. */
 function assembleStyledFile(reply, styled) {
   const match = FRONTMATTER_BLOCK.exec(reply.trim());
-  const lines = (match ? match[1] : '').split(/\r?\n/).filter((line) => !/^stylesheet\s*:/.test(line));
+  const lines = withoutKeys((match ? match[1] : '').split(/\r?\n/), ['stylesheet', 'fonts']);
   lines.push(`stylesheet: /${styled.stylesheet.file}`);
+  if (styled.fonts.length) lines.push('fonts:', ...styled.fonts.map((url) => `  - "${url.replace(/"/g, '%22')}"`));
   // The imported page brings its own call to action; the site's would be added after it.
   if (!lines.some((line) => /^hideCta\s*:/.test(line))) lines.push('hideCta: true');
   return `---\n${lines.join('\n')}\n---\n\n${styled.body}`;
+}
+
+/**
+ * The self-tests a --keep-styles conversion runs before it's shown or written.
+ * Pass 1 (always): the body goes through the site's own template engine and
+ * markdown renderer unchanged, and keeps all of the original's text.
+ * Passes 2–4 (when a browser is available): the original and the copy are
+ * rendered side by side at three widths and compared element by element
+ * (scripts/lib/render-check.js). Returns { checks, problems, warnings }.
+ */
+async function testStyledPage(styled, raw) {
+  const checks = [];
+  const problems = [];
+  const warnings = [];
+
+  const { body } = parseFrontmatter(raw);
+  const rendered = renderMarkdown(new TemplateEngine().renderString(body, {})).html.trim();
+  const wrapperStart = styled.body.slice(0, styled.body.indexOf('\n'));
+  if (!rendered.startsWith(wrapperStart) || rendered.length < body.trim().length * 0.98) {
+    problems.push("the site's markdown renderer changes the copied HTML, so the page wouldn't show as the original");
+  }
+  const decode = (s) => visibleText(s.replace(/&#123;/g, '{').replace(/&#125;/g, '}').replace(/^&#32;$/gm, ''));
+  const originalText = decode(cleanHtml(styled.html, { keepStyles: true, prefix: '' }).html);
+  const copiedText = decode(rendered);
+  if (originalText !== copiedText) problems.push("the copy's text differs from the original's");
+  checks.push(problems.length ? 'pass 1, content: failed' : `pass 1, content: the site's renderer keeps the page as it is, with all ${originalText.length} characters of its text`);
+
+  if (noRenderCheck) {
+    checks.push('render check: skipped (--no-render-check)');
+    return { checks, problems, warnings };
+  }
+  const result = await renderCheck({
+    originalDoc: originalTestDocument(styled),
+    convertedDoc: convertedTestDocument(styled, rendered),
+    hoverClasses: styled.hoverClasses,
+    root: ROOT,
+  });
+  if (!result.ran) {
+    checks.push(`render check: skipped, ${result.reason}`);
+    return { checks, problems, warnings };
+  }
+  result.passes.forEach((pass, i) => {
+    const what = `${pass.elements} elements${pass.hovers ? ` and ${pass.hovers} hover states` : ''}`;
+    if (!pass.differences.length) {
+      checks.push(`pass ${i + 2}, ${pass.width}px wide: identical to the original (${what} compared)`);
+      return;
+    }
+    checks.push(`pass ${i + 2}, ${pass.width}px wide: ${pass.differences.length} difference${pass.differences.length === 1 ? '' : 's'} from the original (${what} compared)`);
+    for (const d of pass.differences.slice(0, 5)) warnings.push(`at ${pass.width}px, ${d}`);
+    if (pass.differences.length > 5) warnings.push(`at ${pass.width}px, ${pass.differences.length - 5} more differences`);
+  });
+  return { checks, problems, warnings };
+}
+
+/**
+ * The original page as the test compares it: minus its header, footer,
+ * navigation and scripts, with images resolved and uploaded stylesheets
+ * standing in for its <link>s exactly as in the copy, and a viewport tag (a
+ * page without one shows zoomed out on phones; the site always has one).
+ */
+function originalTestDocument(styled) {
+  const source = styled.html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, '').replace(/<!--[\s\S]*?-->/g, '');
+  const used = new Set();
+  const styleTag = (css, media) => `<style${media ? ` media="${media.replace(/"/g, '')}"` : ''}>${css}</style>`;
+  let head = /<head\b[^>]*>[\s\S]*?<\/head\s*>/i.exec(source)?.[0] ?? '<head><meta charset="utf-8"></head>';
+  head = head.replace(/<link\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi, (tag) => {
+    if (!/\brel\s*=\s*["']?[^"'>]*stylesheet/i.test(tag)) return tag;
+    const href = /\bhref\s*=\s*["']?([^"'\s>]+)/i.exec(tag)?.[1] || '';
+    if (FONT_STYLESHEET.test(href)) return tag;
+    const base = path.posix.basename(href.split(/[?#]/)[0]).toLowerCase();
+    const i = styled.uploads.findIndex((u, n) => !used.has(n) && path.posix.basename(u.file).toLowerCase() === base);
+    if (i < 0) return '';
+    used.add(i);
+    return styleTag(styled.uploads[i].css, /\bmedia\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]);
+  });
+  const unmatched = styled.uploads.filter((_, n) => !used.has(n)).map((u) => styleTag(u.css)).join('');
+  head = head.replace(/<head\b[^>]*>/i, (open) => `${open}${/name\s*=\s*["']?viewport/i.test(head) ? '' : '<meta name="viewport" content="width=device-width, initial-scale=1">'}${unmatched}`);
+  const htmlTag = /<html\b[^>]*>/i.exec(source)?.[0] ?? '<html>';
+  const bodyTag = /<body\b[^>]*>/i.exec(source)?.[0] ?? '<body>';
+  const content = rewriteImages(cleanHtml(styled.html, { keepStyles: true, prefix: '' }).html, siteImage);
+  return `<!DOCTYPE html>\n${htmlTag}${head}${bodyTag}\n${content}\n</body></html>\n`;
+}
+
+/** The copy as the site shows it: the site's compiled stylesheet, the page's fonts and stylesheet, the body inside <main>. */
+function convertedTestDocument(styled, renderedBody) {
+  const siteCss = path.join(ROOT, 'assets/css/main.css');
+  const fontLinks = styled.fonts.map((url) => `<link rel="stylesheet" href="${url.replace(/"/g, '%22')}">`).join('');
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+${fontLinks}
+<style>body{margin:0}</style>
+${fs.existsSync(siteCss) ? `<style>${fs.readFileSync(siteCss, 'utf8')}</style>` : ''}
+<style>${styled.stylesheet.content}</style>
+</head><body><main id="main">
+${renderedBody}
+</main></body></html>
+`;
 }
 
 /**
@@ -927,6 +1096,105 @@ function pageChecks(original, updated) {
 
 /* ------------------------------------------------------------- one edit --- */
 
+const styledLogInstruction = (instruction, styled) => instruction || `${defaultLogInstruction('convert', styled.file)}, keeping its styles`;
+
+/**
+ * The work-log summary of a conversion that kept the old page's styles. The
+ * body is the old page's HTML copied as-is, so Claude gets the frontmatter
+ * change and the conversion's facts rather than a diff of all that HTML.
+ */
+function styledSummary(relFile, instruction, original, raw, styled) {
+  const frontmatter = (text) => FRONTMATTER_BLOCK.exec(text)?.[0] ?? '';
+  const facts = [
+    `the page's body was replaced by the HTML of ${path.posix.basename(styled.file)} copied as-is with its own styling (${styled.body.length} characters)`,
+    styled.removed.length ? `removed from that HTML: ${styled.removed.join(', ')}` : '',
+    `its CSS (${styled.rules} rules) was saved, scoped to this page, as ${styled.stylesheet.file}`,
+    styled.fonts.length ? `its web fonts are loaded from ${styled.fonts.length} font stylesheet${styled.fonts.length === 1 ? '' : 's'}` : '',
+    styled.reveal ? 'its scroll-in effect was kept' : '',
+  ].filter(Boolean).join('; ');
+  return summaryFor({ mode: 'convert', relFile, instruction: styledLogInstruction(instruction, styled), before: frontmatter(original), after: frontmatter(raw), notes: facts });
+}
+
+// How many times a conversion asks Claude: the first reply plus up to two corrections.
+const MAX_ATTEMPTS = 3;
+
+const comparable = (text) =>
+  text
+    .replace(/&nbsp;|&#160;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;|&apos;|[‘’]/g, "'").replace(/[“”]/g, '"')
+    .replace(/&mdash;|—/g, '-').replace(/&ndash;|–/g, '-').replace(/&middot;|·/g, ' ').replace(/&[a-z]+;|&#\d+;/gi, ' ')
+    .toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/**
+ * Pieces of the page's own content (headings, paragraphs, list items, table
+ * cells, quotes, captions) that a converted file doesn't contain, compared by
+ * their first eight words after markdown and entities are stripped away. The
+ * <h1> isn't counted: it becomes the page's title, which may already be set.
+ */
+function missingContent(page, converted) {
+  const haystack = ` ${comparable(converted.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/<[^>]+>/g, ' '))} `;
+  const missing = [];
+  const seen = new Set();
+  const readable = (s) => s.replace(/&nbsp;|&#160;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&amp;/g, '&');
+  for (const m of page.html.matchAll(/<(h[2-6]|p|li|td|th|blockquote|figcaption|dt|dd|summary)\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
+    const text = readable(visibleText(m[2]));
+    const key = comparable(text).split(' ').slice(0, 8).join(' ');
+    if (key.length < 3 || seen.has(key)) continue;
+    seen.add(key);
+    if (!haystack.includes(` ${key} `)) missing.push(text.length > 90 ? `${text.slice(0, 90)}…` : text);
+  }
+  return missing;
+}
+
+/**
+ * Markdown conversion, tested and corrected: every reply is checked (the
+ * convert checks plus missing content). Claude always reviews its first
+ * conversion once against the HTML, with any issues listed, and gets a third
+ * attempt if issues remain. The best attempt is kept: fewest problems, then
+ * least missing content, later attempts winning ties.
+ */
+async function reviewConversion({ reply, buildPrompts, original, htmlPage }) {
+  const { systemPrompt, userPrompt } = buildPrompts(reply.images);
+  const messages = [{ role: 'user', content: userContent(userPrompt, reply.images) }];
+  const checks = [];
+  let best = null;
+  let current = reply;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const raw = stripFence(current.text);
+    const checked = convertChecks(original, raw, reply.images, htmlPage);
+    const problems = [...checked.problems];
+    if (current.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the file is incomplete`);
+    const missing = missingContent(htmlPage, raw);
+    const result = { raw, problems, warnings: [...checked.warnings], missing, attempt };
+    checks.push(`attempt ${attempt}: ${problems.length ? `${problems.length} problem${problems.length === 1 ? '' : 's'}` : 'no problems'}, ${missing.length ? `${missing.length} piece${missing.length === 1 ? '' : 's'} of content missing` : 'all content present'}`);
+    console.log(`  Check ${checks.at(-1)}`);
+    const score = (r) => r.problems.length * 1000 + r.missing.length;
+    if (!best || score(result) <= score(best)) best = result;
+    const clean = !problems.length && !missing.length;
+    // Attempt 2 always runs as a review; attempt 3 only if something is still wrong.
+    if (attempt === MAX_ATTEMPTS || (clean && attempt >= 2)) break;
+
+    const issues = [
+      ...problems.map((p) => `- ${p}`),
+      ...missing.slice(0, 20).map((t) => `- missing from the page: "${t}"`),
+      ...(missing.length > 20 ? [`- and ${missing.length - 20} more pieces of content`] : []),
+    ];
+    messages.push({ role: 'assistant', content: current.text }, {
+      role: 'user',
+      content: issues.length
+        ? `Checking your conversion against the HTML found these issues:\n${issues.join('\n')}\nFix them: add missing content where it belongs in the page, with its original wording, unless it's part of the old site's header, footer or navigation. Then check the whole file against the HTML once more and return the complete corrected file, following the same rules.`
+        : 'Review your conversion against the HTML once more, line by line: every heading, paragraph, list item, table cell, link and image of the page\'s own content must be there, in order, with the original wording, and nothing from the old site\'s header, footer or navigation. Return the complete file, corrected if anything was wrong or unchanged if not, following the same rules.',
+    });
+    console.log(`  Asking Claude to ${issues.length ? 'fix what the check found' : 'review its conversion'} (attempt ${attempt + 1} of ${MAX_ATTEMPTS})…`);
+    current = await requestClaude({ apiKey, model: site.automation.model, systemPrompt, messages, maxTokens: MAX_TOKENS });
+    if (current.stopReason === 'refusal') break;
+  }
+  const warnings = [...best.warnings];
+  for (const t of best.missing.slice(0, 10)) warnings.unshift(`possibly missing from the page: "${t}"`);
+  if (best.missing.length > 10) warnings.unshift(`${best.missing.length - 10} more pieces of the HTML's content may be missing`);
+  checks.push(`kept attempt ${best.attempt} of ${checks.length}`);
+  return { raw: best.raw, problems: best.problems, warnings, checks };
+}
+
 const MODE_LABELS = {
   edit: 'edit by instruction',
   generate: 'generate the page from its draft',
@@ -946,6 +1214,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   }
   console.log(`  Styles: kept, ${styled.rules} CSS rule${styled.rules === 1 ? '' : 's'} into ${styled.stylesheet.file}${cssFiles.length ? ` (from the HTML and ${cssFiles.join(', ')})` : ' (from the HTML)'}`);
   if (styled.removed.length) console.log(`  Removed: ${styled.removed.join(', ')}`);
+  if (styled.reveal) console.log(`  Scroll reveal: kept (.${styled.reveal.target} shown with .${styled.reveal.state} as it scrolls into view)`);
 
   const { systemPrompt, userPrompt } = buildStyledFrontmatterPrompts(relFile, instruction, original, styled, textPage);
   if (!apiKey) {
@@ -956,16 +1225,40 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   }
 
   console.log(`  Model: ${site.automation.model}\n`);
-  const reply = await requestClaude({ apiKey, model: site.automation.model, systemPrompt, userContent: userPrompt, maxTokens: 4000 });
-  if (reply.stopReason === 'refusal') {
-    console.error('  Claude declined this request. Rephrase the direction and try again.\n');
-    return false;
+  // The frontmatter is checked after every reply; Claude gets up to MAX_ATTEMPTS tries to fix what's wrong.
+  const messages = [{ role: 'user', content: userPrompt }];
+  const checks = [];
+  let raw = '';
+  let problems = [];
+  let warnings = [];
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const reply = await requestClaude({ apiKey, model: site.automation.model, systemPrompt, messages, maxTokens: 4000 });
+    if (reply.stopReason === 'refusal') {
+      console.error('  Claude declined this request. Rephrase the direction and try again.\n');
+      return false;
+    }
+    const text = stripFence(reply.text);
+    raw = assembleStyledFile(text, styled);
+    ({ problems, warnings } = pageChecks(original, raw));
+    if (!FRONTMATTER_BLOCK.test(text.trim())) problems.unshift("Claude's reply had no frontmatter block");
+    if (reply.stopReason === 'max_tokens') problems.unshift("Claude's reply was cut off, so the frontmatter is incomplete");
+    checks.push(`frontmatter, attempt ${attempt}: ${problems.length ? `${problems.length} problem${problems.length === 1 ? '' : 's'}` : 'passed'}`);
+    console.log(`  ${checks.at(-1)}`);
+    if (!problems.length || attempt === MAX_ATTEMPTS) break;
+    messages.push({ role: 'assistant', content: reply.text }, {
+      role: 'user',
+      content: `That frontmatter has these problems:\n${problems.map((p) => `- ${p}`).join('\n')}\nReturn the corrected frontmatter block only, following the same rules.`,
+    });
   }
-  const raw = assembleStyledFile(stripFence(reply.text), styled);
-  const { problems, warnings } = pageChecks(original, raw);
-  if (!FRONTMATTER_BLOCK.test(stripFence(reply.text).trim())) problems.unshift("Claude's reply had no frontmatter block");
-  if (reply.stopReason === 'max_tokens') problems.unshift("Claude's reply was cut off, so the frontmatter is incomplete");
   warnings.push(...styled.warnings);
+
+  // Then the page itself is tested: content first, then side by side with the original at three widths.
+  console.log('  Testing the copy against the original…');
+  const tested = await testStyledPage(styled, raw);
+  checks.push(...tested.checks);
+  problems.push(...tested.problems);
+  warnings.push(...tested.warnings);
+  for (const line of tested.checks) console.log(`  ${line}`);
   const files = [styled.stylesheet];
 
   if (dryRun) {
@@ -974,7 +1267,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
     console.log(`----- proposed ${styled.stylesheet.file} (not written, ${styled.stylesheet.content.length} characters) -----`);
     if (problems.length) console.log(`\n  problem: ${problems.join('\n  problem: ')}`);
     if (warnings.length) console.log(`\n  warning: ${warnings.join('\n  warning: ')}`);
-    if (proposalOut) writeProposal({ relFile, mode: 'convert', instruction, images: [], raw, problems, warnings, source: styled.file, files });
+    if (proposalOut) writeProposal({ relFile, mode: 'convert', instruction, images: [], raw, problems, warnings, source: styled.file, files, checks, summary: await styledSummary(relFile, instruction, original, raw, styled) });
     return false;
   }
 
@@ -986,7 +1279,12 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   fs.mkdirSync(path.dirname(path.join(ROOT, styled.stylesheet.file)), { recursive: true });
   fs.writeFileSync(path.join(ROOT, styled.stylesheet.file), styled.stylesheet.content);
   fs.writeFileSync(path.join(ROOT, relFile), raw);
-  recordWork({ command: 'page:convert', file: relFile, instruction: instruction || `${defaultLogInstruction('convert', styled.file)}, keeping its styles` });
+  recordWork({
+    command: 'page:convert',
+    file: relFile,
+    instruction: styledLogInstruction(instruction, styled),
+    summary: await styledSummary(relFile, instruction, original, raw, styled),
+  });
   for (const warning of warnings) console.log(`  warning: ${warning}`);
   console.log(`\n  Wrote ${relFile} and ${styled.stylesheet.file}\n`);
   return true;
@@ -1073,22 +1371,28 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     console.error(`  Claude declined this request. Rephrase the ${{ edit: 'instruction', generate: 'draft', convert: 'direction' }[mode]} and try again.\n`);
     return false;
   }
-  const raw = stripFence(reply.text);
-  const checked = generate
-    ? generateChecks(original, raw, reply.images)
-    : convert
-      ? convertChecks(original, raw, reply.images, htmlPage)
-      : editChecks(original, raw, isContent);
-  const problems = [...checked.problems];
-  const { warnings } = checked;
-  if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the file is incomplete`);
+  let raw = stripFence(reply.text);
+  let checks = [];
+  let problems;
+  let warnings;
+  if (convert) {
+    ({ raw, problems, warnings, checks } = await reviewConversion({ reply, buildPrompts, original, htmlPage }));
+  } else {
+    const checked = generate ? generateChecks(original, raw, reply.images) : editChecks(original, raw, isContent);
+    problems = [...checked.problems];
+    ({ warnings } = checked);
+    if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the file is incomplete`);
+  }
 
   if (dryRun) {
     console.log(`----- proposed ${relFile} (not written) -----\n`);
     console.log(raw);
     if (problems.length) console.log(`\n  problem: ${problems.join('\n  problem: ')}`);
     if (warnings.length) console.log(`\n  warning: ${warnings.join('\n  warning: ')}`);
-    if (proposalOut) writeProposal({ relFile, mode, instruction, images: reply.images, raw, problems, warnings, source: htmlPage?.file });
+    if (proposalOut) {
+      const summary = await summaryFor({ mode, relFile, instruction: instruction || defaultLogInstruction(mode, htmlPage?.file), before: original, after: raw });
+      writeProposal({ relFile, mode, instruction, images: reply.images, raw, problems, warnings, source: htmlPage?.file, checks, summary });
+    }
     return false;
   }
 
@@ -1098,14 +1402,28 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
   }
 
   fs.writeFileSync(targetPath, raw.endsWith('\n') ? raw : `${raw}\n`);
+  const logInstruction = instruction || defaultLogInstruction(mode, htmlPage?.file);
   recordWork({
-    command: { edit: 'page:edit', generate: 'page:generate', convert: 'page:convert' }[mode],
+    command: LOG_COMMANDS[mode],
     file: relFile,
-    instruction: instruction || defaultLogInstruction(mode, htmlPage?.file),
+    instruction: logInstruction,
+    summary: await summaryFor({ mode, relFile, instruction: logInstruction, before: original, after: raw }),
   });
   for (const warning of warnings) console.log(`  warning: ${warning}`);
   console.log(`\n  Wrote ${relFile}  (${original.split('\n').length} -> ${raw.split('\n').length} lines)\n`);
   return true;
+}
+
+const LOG_COMMANDS = { edit: 'page:edit', generate: 'page:generate', convert: 'page:convert' };
+
+/**
+ * The work-log summary of a change: a few points Claude writes from what
+ * changed. Also made for a preview with --proposal-out, because the web app
+ * logs the change when it's applied, without calling Claude again.
+ */
+async function summaryFor({ mode, relFile, instruction, before, after, notes = '' }) {
+  console.log('  Writing the work-log summary…');
+  return summarizeChange({ apiKey, model: site.automation.model, command: LOG_COMMANDS[mode], file: relFile, instruction, before, after, notes });
 }
 
 /** What the work log says a run without an instruction did. */
@@ -1116,7 +1434,7 @@ function defaultLogInstruction(mode, source) {
 }
 
 /** Saves a dry-run's proposed file for tools that show it and then write exactly that version. */
-function writeProposal({ relFile, mode, instruction, images, raw, problems, warnings, source, files }) {
+function writeProposal({ relFile, mode, instruction, images, raw, problems, warnings, source, files, checks, summary }) {
   const target = path.resolve(ROOT, String(proposalOut));
   if (!target.startsWith(ROOT + path.sep)) {
     console.error(`  --proposal-out must be inside the repository, not ${proposalOut}.`);
@@ -1130,6 +1448,10 @@ function writeProposal({ relFile, mode, instruction, images, raw, problems, warn
     ...(source ? { source } : {}),
     // Other files the change writes alongside the page (a --keep-styles stylesheet).
     ...(files?.length ? { files } : {}),
+    // What the conversion tested before showing this (attempts, content, render passes).
+    ...(checks?.length ? { checks } : {}),
+    // The work-log summary the web app records with the change when it's applied.
+    ...(summary?.length ? { summary } : {}),
     content: raw.endsWith('\n') ? raw : `${raw}\n`,
     problems,
     warnings,

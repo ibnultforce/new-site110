@@ -229,8 +229,10 @@ removes the old site's header, footer, navigation, sidebars and cookie banners,
 which it finds by tag (`header`, `footer`, `nav`, `aside`), by role (`banner`,
 `contentinfo`, `navigation`, `complementary`) and by class or id
 (`site-header`, `footer`, `navbar`…). A `<header>` or `<footer>` inside `<main>`
-or `<article>` is the content's own (an article's title or date) and stays, but
-navigation goes wherever it is. Claude is told to leave out any chrome that is
+or `<article>` is the content's own (an article's title or date) and stays. A
+`<nav>` counts as the old site's only above the page's `<h1>` or below its last
+heading. Between the headings (a section bar, a table of contents) it's the
+page's own and stays. Breadcrumbs always go. Claude is told to leave out any chrome that is
 still there, and to keep the page's wording rather than rewrite it. Placeholder
 frontmatter from `npm run new` is filled from the HTML (the meta description,
 the `<h1>`, the intro paragraph). The content is refused if it's over 150,000
@@ -241,6 +243,18 @@ write: the same frontmatter, locked-field, partial and cut-off checks as
 `--generate`, and an image that isn't in the HTML or the repo. **Warnings**: a
 page with less than half the HTML's text, an image from the HTML that was
 dropped, links to pages that don't exist, and the list of what was removed.
+
+A conversion is checked and corrected, never trusted on Claude's first reply
+(`reviewConversion`, up to `MAX_ATTEMPTS` = 3 requests). After each reply the
+script runs the checks above plus `missingContent`. That check lists every
+heading, paragraph, list item, table cell, quote and caption of the HTML (not
+the `<h1>`, which becomes the title) whose first eight words aren't in the
+file. The second request always happens: Claude gets its conversion back with
+the issues found, or with a request to review it against the HTML line by
+line. A third request happens only if issues remain. The attempt with the
+fewest problems, then the least missing content, is kept, with later attempts
+winning ties. Missing content in the kept version becomes warnings, and the
+proposal's `"checks"` lists each attempt's result.
 The work log records `page:convert`, the proposal has `"mode": "convert"` and
 `"source"`, and queue entries take `"mode": "convert", "source": "<file.html>"`.
 The Twinstack web app detects the feature by searching `edit-page.js` for the
@@ -256,8 +270,8 @@ npm run page:edit -- about-us --from-html=old-site/about.html --keep-styles --cs
 The body is then copied by code, not by Claude. Header, footer and navigation
 are removed as above, and the rest keeps its elements, classes, ids, inline
 styles and SVG. Scripts, event handlers, `data-*` and `javascript:` links are
-dropped, and with them any script-driven effects such as scroll-reveal
-animations. Each class is prefixed `imp-`, so the site's components and
+dropped. Of the effects scripts drove, only scroll-reveal is brought back (see
+below). Each class is prefixed `imp-`, so the site's components and
 Tailwind utilities (Tailwind scans `content/`) never match imported markup.
 The body is written as one raw HTML block inside `<div class="imported-page">`,
 with no blank lines (the markdown renderer ends a raw block at one) and with
@@ -266,29 +280,100 @@ with no blank lines (the markdown renderer ends a raw block at one) and with
 `scripts/lib/css-scope.js` builds the page's stylesheet. Its inputs are the
 `<style>` blocks and the uploaded files, in the page's own cascade order: an
 upload whose file name matches a `<link href>` takes that link's place, and
-the rest come first. Linked stylesheets from web-font services (Google Fonts,
-Bunny, Typekit, Fontshare) become an `@import`. Every selector is put under
-`.imported-page`, with `html`/`body`/`:root` rules becoming the wrapper's, and
-class names get the same prefix. Rules for classes or ids that no longer exist
-in the body are dropped, which removes the old header and footer CSS and
-unused framework rules.
+the rest come first. A `media` attribute wraps its sheet in `@media`, so a
+print stylesheet stays print-only. Linked stylesheets from web-font services
+(Google Fonts, Bunny, Typekit, Fontshare) go into the page's `fonts`
+frontmatter list, which `base.html` loads in `<head>` the way the original did,
+so text never shows in fallback fonts first. Every selector is put under
+`.imported-page`, and class names get the same prefix. Rules for classes or
+ids that no longer exist in the body are dropped, which removes the old header
+and footer CSS and unused framework rules. Classes inside `:not()`, `:is()`,
+`:where()` and `:has()` don't count for that.
+
+Other pages' CSS is handled too:
+- `html`/`body`/`:root` rules become the wrapper's, keeping pseudo-elements
+  (`body::before` is the wrapper's `::before`).
+- The old `<html>` and `<body>` classes and ids go onto the wrapper, so
+  `body.home .x`, `.home .x` and `#page .x` still apply.
+- `*` and `*::before` also match the wrapper, through `:where()` so they keep
+  zero specificity, as they matched `<body>`.
+- `[class^="col-"]`-style attribute selectors get the prefix.
+- `@keyframes` names get the prefix (and `animation` values follow), so they
+  can't clash with the site's `pulse` or `spin`.
+- `@layer` names get the prefix, with an order statement at the top.
+- CSS nesting has its class names prefixed.
+- When the page set its root font size (`html { font-size: 62.5% }`), its rem
+  values in CSS and inline styles are rescaled. Sizes relative to the parent on
+  root rules become px, because the wrapper's parent is the site's page.
+- `overflow: hidden` on the root becomes `clip`. On a real page it belongs to
+  the viewport, but on the wrapper it would make a scroll container and break
+  `position: sticky`.
 
 Two zero-specificity rules isolate the page from the site:
-`:where(.imported-page) { all: initial; display: block }` makes the wrapper
-start like a fresh `<body>` (16px, not the site body's size), and
+`:where(.imported-page) { all: initial; display: block; margin: 8px }` makes
+the wrapper start like a fresh `<body>`, with the browser's default margin
+rather than the site body's size, and
 `:where(.imported-page *) { all: revert }` rolls the site's preflight and base
 layer (heading colours, `text-wrap: balance`, img/svg display) back to browser
-defaults. Every imported rule still wins over both. The result goes to
+defaults. Matching rules do the same for `::before`/`::after` (the reset
+would make them border-box and resize them), `::marker`, `::placeholder` and
+`::selection`.
+
+`revert` also removes the styling browsers give old HTML attributes. So
+`presentationalHints` in `html-source.js` turns those attributes into
+zero-specificity rules placed after the isolation: `<font color face size>`,
+`bgcolor`, `background`, `align`, `valign`, `width`/`height` (with the image's
+aspect ratio), `nowrap`, table `border`, `cellpadding` and `cellspacing`, and
+the old `<body>`'s `bgcolor`/`text`. They rank like browsers rank attribute
+styling: above defaults, below every real rule. When the imported CSS uses
+layers, the isolation and these rules go in `imp-reset` and `imp-attributes`
+layers ordered before the page's own. Every imported rule still wins over all
+of these.
+
+Scroll-reveal effects are kept when the CSS shows the common pattern
+(`detectReveal` in `css-scope.js`). In that pattern, `.R .T { opacity: 0 }`
+hides elements until a script puts `R` (usually `js`) on `<html>`, and
+`.R .T.S` shows them once the script adds `S`. Those rules are kept with `R`
+moved onto the wrapper (`.imported-page.imp-js .imp-rv`), and the wrapper gets
+`data-reveal`, `data-reveal-root` and `data-reveal-state`. When the page's own
+script uses the usual forms, the wrapper also gets `data-reveal-margin` and
+`data-reveal-threshold` (from an IntersectionObserver) and
+`data-reveal-stagger` (from a `(i % n) * ms` transition delay).
+`assets/js/site.js` plays the effect back, and only it adds the root class, so
+without JavaScript nothing is ever hidden. The page's script itself is never
+copied: it usually depends on the removed header (the nav it docks, say) and
+would fail with the content still hidden. The result goes to
 `assets/css/imported/<page>.css` (refused over 600 KB).
 
-Claude writes only the frontmatter, from a text version of the page. The
-script adds `stylesheet: /assets/css/imported/<page>.css` and `hideCta: true`,
+Claude writes only the frontmatter, from a text version of the page. It's
+checked after each reply, and Claude gets up to `MAX_ATTEMPTS` (3) tries to
+fix problems such as a changed locked field. The script adds
+`stylesheet: /assets/css/imported/<page>.css`, `fonts` and `hideCta: true`,
 because the page brings its own call to action.
+
+Then the copy is tested before it's shown or written (`testStyledPage`):
+- **Pass 1** pushes the body through the site's own template engine and
+  markdown renderer. It must come out unchanged, and with all of the
+  original's text. A failure is a problem, which blocks the write.
+- **Passes 2–4** are `scripts/lib/render-check.js`, which renders the original
+  and the copy side by side in headless Chrome at 1280, 768 and 390px.
+  - The original side is the old page minus what's removed on purpose, with
+    no scripts, the uploads standing in for its links, and a viewport tag.
+  - The copy side is the site's compiled `assets/css/main.css` with the page's
+    fonts and stylesheet, and the rendered body inside `<main>`.
+  - It compares every element's box and computed style, every
+    `::before`/`::after`, and the forced `:hover` state of each class the CSS
+    gives one.
+  - Differences become warnings: the first five per width, and a count.
+
+The browser comes from `CHROME_PATH`, the usual install locations or PATH. It
+needs Node 22+ for the built-in WebSocket. Without either, those passes are
+skipped and say why. `--no-render-check` skips them on purpose. The results
+are printed and saved as the proposal's `"checks"`.
 `templates/partials/base.html` loads `page.stylesheet` after `main.css`, and
 `templates/layouts/page.html` renders a page that has one edge to edge, without
 the hero or `.prose-site`. Other layouts load the stylesheet but keep their
-own structure. A page converted this way was checked element by element
-against its original at 390–1400px and rendered identically.
+own structure.
 
 Warnings list linked stylesheets that weren't uploaded (other external ones
 are never fetched), `url()` references to files the site doesn't have, and
@@ -379,11 +464,26 @@ Every Claude request (`page:edit`, `page:generate`, `md:edit`,
   `npm run md:edit -- knowledge/notes.md "<instruction>"`. HTML comments and
   empty sections aren't sent, so the starter file sends nothing. Only the
   first 12,000 characters are sent.
-- `knowledge/work-log.md`: one line per change Claude wrote, appended
-  automatically after the write (`- <date> · <command> · <file> · <instruction>`).
-  Once it passes 60 entries, all but the newest 30 move to
-  `knowledge/archive/work-log-<date>.md`, which is never sent. Previews
-  (`--dry-run`) log nothing, and neither do edits to `knowledge/` itself.
+- `knowledge/work-log.md`: one entry per change Claude wrote, appended
+  automatically after the write. The entry is a line,
+  `- <date> · <command> · <file> · <instruction>`, followed by up to 5
+  indented `  - ` points (each at most 200 characters) saying what the change
+  actually did. Entries from before summaries are just the line.
+  - **The points:** `summarizeChange` in `knowledge.js` makes them with one
+    small extra Claude request (400 tokens at most). It sends the request that
+    was made and the part of the file that changed: lines shared at the start
+    and end are left out, and each side is capped at 9,000 characters.
+  - **Conversions that kept the old page's styles** send the frontmatter
+    change and the conversion's facts instead of the copied HTML.
+  - **Failure:** with no key, or if the request fails, the entry is just the
+    line, and the change never fails because of it.
+  - **Previews:** a preview with `--proposal-out` (the web app's preview) also
+    makes the summary and saves it as the proposal's `"summary"`, because the
+    web app logs the change on apply without calling Claude.
+  - **Rotation:** once the log passes 60 entries, all but the newest 30 move,
+    whole, to `knowledge/archive/work-log-<date>.md`, which is never sent.
+  - **Nothing logged:** other previews (`--dry-run`) and edits to
+    `knowledge/` itself.
 
 Claude is told the notes are instructions and the log is history: the current
 files win over the log, and the log is never a source of facts.
@@ -395,7 +495,8 @@ writes the latest log to a file in `.git/` and sets `TWINSTACK_WORK_LOG` to
 that path. `knowledge.js` then reads the prompt's log from that file and adds
 new entries to it as well as to `knowledge/work-log.md`. The web app also logs
 changes it applies from a preview (`server/src/site-files.js`), so the entry
-format and the two limits live in both places. `edit-md.js` imports `knowledge.js`
+format (the line, the indented summary points and their limits) and the two
+rotation limits live in both places. `edit-md.js` imports `knowledge.js`
 optionally, because the web app installs `edit-md.js` into older copies on its
 own.
 

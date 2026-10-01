@@ -8,8 +8,11 @@
  * site's own classes and Tailwind utilities never match imported markup and
  * the imported rules never reach the site's header, footer or other pages.
  * Rules whose classes or ids no longer exist in the imported body (the old
- * header and footer, unused framework classes) are dropped. A zero-specificity
- * `all: revert` keeps the site's own base styles out of the scope.
+ * header and footer, unused framework classes) are dropped. Keyframes and
+ * cascade layers are renamed with the prefix so they can't collide with the
+ * site's, rem values are rescaled when the page changed the root font size,
+ * and zero-specificity `all: initial` / `all: revert` rules keep the site's
+ * own base styles out of the scope.
  */
 
 import fs from 'node:fs';
@@ -17,8 +20,10 @@ import path from 'node:path';
 import { ROOT } from './content.js';
 
 // At-rules whose blocks hold rules (scoped recursively); any other block is copied as-is.
-const NESTING_AT_RULES = /^@(media|supports|layer|container|document|-moz-document)\b/i;
+const NESTING_AT_RULES = /^@(media|supports|layer|container|document|-moz-document|scope|starting-style)\b/i;
 const ROOT_COMPOUND = /^(?:html|body|:root)(?![\w-])(?:[.#:[][^\s>+~]*)?/i;
+// Functional pseudo-classes whose arguments may name classes that aren't there (":not(.x)" still matches).
+const FUNCTIONAL_PSEUDO = /:(?:not|is|where|has|matches|-webkit-any|-moz-any)\(/gi;
 
 /** Removes comments, leaving strings alone. */
 function stripComments(css) {
@@ -92,7 +97,7 @@ function parse(css) {
   return nodes;
 }
 
-/** Splits on commas outside parentheses and strings. */
+/** Splits on commas outside parentheses, brackets and strings. */
 function splitList(text) {
   const parts = [];
   let depth = 0;
@@ -126,26 +131,93 @@ function outsideStrings(selector, fn) {
   return out + fn(selector.slice(last));
 }
 
+/** The selector with the arguments of :not(), :is(), :where() and :has() taken out. */
+function withoutFunctionalArgs(selector) {
+  let out = '';
+  let last = 0;
+  for (const m of selector.matchAll(FUNCTIONAL_PSEUDO)) {
+    if (m.index < last) continue;
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < selector.length && depth; i++) {
+      if (selector[i] === '(') depth++;
+      else if (selector[i] === ')') depth--;
+    }
+    out += selector.slice(last, m.index);
+    last = i;
+  }
+  return out + selector.slice(last);
+}
+
 const unescape = (name) => name.replace(/\\([0-9a-f]{1,6}\s?|.)/gi, (_, c) => (/^[0-9a-f]/i.test(c) && c.length > 1 ? String.fromCodePoint(parseInt(c, 16)) : c));
 
+/** [class^="x"], [class~="x"], [class|="x"], [class*=" x"] and [class="a b"] with the prefix added. */
+function prefixClassAttributes(selector, prefix) {
+  return selector.replace(/\[\s*class\s*([~|^*]?=)\s*(["']?)([^"'\]]*)\2(\s+[is])?\s*\]/gi, (whole, op, quote, value, flag = '') => {
+    const q = quote || '"';
+    if (op === '=') return `[class=${q}${value.split(/\s+/).filter(Boolean).map((v) => prefix + v).join(' ')}${q}${flag}]`;
+    if (op === '*=') return value.startsWith(' ') ? `[class*=${q} ${prefix}${value.slice(1)}${q}${flag}]` : whole;
+    return `[class${op}${q}${prefix}${value}${q}${flag}]`;
+  });
+}
+
 /** The scoped selector, or null if it refers to a class or id that isn't in the page. */
-function scopeSelector(selector, { scope, prefix, classes, ids }) {
+function scopeSelector(selector, options) {
+  const { scope, prefix, classes, ids, rootClasses, rootIds } = options;
+  const known = (name) => classes.has(name) || rootClasses.has(name);
   let missing = false;
-  outsideStrings(selector, (part) => {
-    for (const m of part.matchAll(/\.((?:\\.|[\w-])+)/g)) if (!classes.has(unescape(m[1]))) missing = true;
-    for (const m of part.matchAll(/#((?:\\.|[\w-])+)/g)) if (!ids.has(unescape(m[1]))) missing = true;
+  outsideStrings(withoutFunctionalArgs(selector), (part) => {
+    for (const m of part.matchAll(/\.((?:\\.|[\w-])+)/g)) if (!known(unescape(m[1]))) missing = true;
+    for (const m of part.matchAll(/#((?:\\.|[\w-])+)/g)) if (!ids.has(unescape(m[1])) && !rootIds.has(unescape(m[1]))) missing = true;
     return part;
   });
   if (missing) return null;
 
-  let rest = outsideStrings(selector, (part) => part.replace(/\.((?:\\.|[\w-])+)/g, `.${prefix}$1`));
+  // Attribute selectors are rewritten on the whole selector: their values are quoted strings.
+  let rest = prefixClassAttributes(outsideStrings(selector, (part) => part.replace(/\.((?:\\.|[\w-])+)/g, `.${prefix}$1`)), prefix);
+  // Classes and ids the old <html> and <body> carried (and the class a reveal script adds there)
+  // now belong to the scope: "body.home .x", ".js .x" and "#page .x" all start from the wrapper.
+  const rootToken = /^(?:\.(?:\\.|[\w-])+|#(?:\\.|[\w-])+)+(?=[\s>+~]|$)/;
+  const isRootCompound = (compound) =>
+    [...compound.matchAll(/([.#])((?:\\.|[\w-])+)/g)].every(([, kind, name]) =>
+      kind === '.' ? rootClasses.has(unescape(name).slice(prefix.length)) : rootIds.has(unescape(name)));
+  let scoped = scope;
   let rooted = false;
-  for (let m = ROOT_COMPOUND.exec(rest); m; m = ROOT_COMPOUND.exec(rest)) {
-    rest = rest.slice(m[0].length).trimStart();
+  let kind = null;
+  let pseudo = '';
+  for (;;) {
+    const m = ROOT_COMPOUND.exec(rest);
+    const bare = !m && rootToken.exec(rest);
+    const compound = m ? m[0] : bare && isRootCompound(bare[0]) ? bare[0] : null;
+    if (!compound) break;
+    for (const [, sign, name] of compound.matchAll(/([.#])((?:\\.|[\w-])+)/g)) {
+      if (sign === '.' && rootClasses.has(unescape(name).slice(prefix.length)) && !scoped.includes(`.${name}`)) scoped += `.${name}`;
+    }
+    // "body::before" is the wrapper's ::before, not the wrapper.
+    pseudo = /::?(?:before|after|selection|first-line|first-letter|marker|backdrop)\b/i.exec(compound)?.[0] || pseudo;
+    kind = /^(html|:root)/i.test(compound) ? 'html' : kind || 'body';
+    rest = rest.slice(compound.length).trimStart();
     rooted = true;
   }
   // "body > .x" becomes ".scope > .x", and a plain selector becomes a descendant of the scope.
-  return rooted && !rest ? scope : `${scope} ${rest}`;
+  if (rooted && !rest) return { selector: scoped + pseudo, root: pseudo ? null : kind };
+  return { selector: `${scoped} ${rest}`, root: null };
+}
+
+/**
+ * The selector list with "*" (and "*::before"…) also applied to the old <body>:
+ * on the original page a universal selector matched <body> too, and <body> is
+ * now the wrapper, which ".scope *" alone doesn't reach. The extra selector
+ * is marked `universal`, so it keeps the zero specificity "*" had.
+ */
+function withRootUniversal(selectors) {
+  const out = [];
+  for (const s of selectors) {
+    out.push({ selector: s });
+    const m = /^\*((?:::?[\w-]+(?:\([^)]*\))?)*)$/.exec(s.trim());
+    if (m && !/:(?:hover|focus|active|not|is|where|has|nth|first-child|last-child)/i.test(m[1])) out.push({ selector: `body${m[1]}`, universal: true });
+  }
+  return out;
 }
 
 function urlWarnings(text, warnings) {
@@ -157,6 +229,47 @@ function urlWarnings(text, warnings) {
   }
 }
 
+const scaleRem = (text, factor) =>
+  factor === 1 ? text : text.replace(/(-?\d*\.?\d+)rem\b/g, (_, n) => `${+(Number(n) * factor).toFixed(4)}rem`);
+
+/** Declarations with renamed keyframes and rescaled rem values; root rules get absolute font sizes. */
+function rewriteDeclarations(body, options, root) {
+  let out = scaleRem(body, options.remFactor);
+  if (options.keyframes.size) {
+    out = out.replace(/(animation(?:-name)?\s*:\s*)([^;}]+)/gi, (_, prop, value) =>
+      prop + value.replace(/[\w-]+/g, (word) => (options.keyframes.has(word) ? options.prefix + word : word)));
+  }
+  if (root) {
+    // The wrapper sits inside the site's page, so sizes relative to "the parent" must be made absolute.
+    const base = root === 'html' ? 16 : 16 * options.remFactor;
+    out = out.replace(/(font-size\s*:\s*)(-?\d*\.?\d+)(%|em)(?![\w-])/gi, (_, prop, n, unit) => `${prop}${+((Number(n) / (unit === '%' ? 100 : 1)) * base).toFixed(3)}px`);
+    // On a real page body's overflow belongs to the viewport; on the wrapper "hidden" would make it a
+    // scroll container and break position: sticky inside it. "clip" crops without that.
+    out = out.replace(/(overflow(?:-[xy])?\s*:\s*)hidden\b/gi, '$1clip');
+  }
+  return out;
+}
+
+/** A rule body that may contain nested rules (CSS nesting): their class names get the prefix too. */
+function rewriteBody(body, options, root, warnings) {
+  if (!body.includes('{')) return rewriteDeclarations(body, options, root);
+  return parse(body)
+    .map((node) => {
+      if (node.type === 'statement') return `${rewriteDeclarations(node.text, options, root)};`;
+      const prelude = node.prelude.startsWith('@')
+        ? node.prelude
+        : prefixClassAttributes(outsideStrings(node.prelude, (part) => part.replace(/\.((?:\\.|[\w-])+)/g, `.${options.prefix}$1`)), options.prefix);
+      return `${prelude} { ${rewriteBody(node.body, options, null, warnings)} }`;
+    })
+    .join(' ');
+}
+
+const layerName = (name, options) => {
+  const renamed = name.split('.').map((part) => options.prefix + part.trim()).join('.');
+  if (!options.layers.includes(renamed)) options.layers.push(renamed);
+  return renamed;
+};
+
 function scopeNodes(nodes, options, imports, warnings) {
   const out = [];
   for (const node of nodes) {
@@ -164,51 +277,170 @@ function scopeNodes(nodes, options, imports, warnings) {
       if (/^@import\b/i.test(node.text)) {
         if (/^@import\s+(?:url\(\s*)?["']?https?:/i.test(node.text)) imports.push(`${node.text};`);
         else warnings.add(`dropped ${node.text.slice(0, 120)}: upload that stylesheet as well to include it`);
+      } else if (/^@layer\b/i.test(node.text)) {
+        // "@layer a, b;" only fixes the order; it's folded into the order statement at the top.
+        for (const name of node.text.replace(/^@layer\s*/i, '').split(',')) if (name.trim()) layerName(name.trim(), options);
       }
       continue; // @charset, @namespace and stray statements
     }
     const { prelude, body } = node;
-    if (NESTING_AT_RULES.test(prelude)) {
+    if (/^@layer\b/i.test(prelude)) {
+      const name = prelude.replace(/^@layer\s*/i, '').trim() || `anonymous-${options.layers.length + 1}`;
+      const inner = scopeNodes(parse(body), options, imports, warnings);
+      if (inner.length) out.push(`@layer ${layerName(name, options)} {\n${inner.join('\n')}\n}`);
+    } else if (NESTING_AT_RULES.test(prelude)) {
       const inner = scopeNodes(parse(body), options, imports, warnings);
       if (inner.length) out.push(`${prelude} {\n${inner.join('\n')}\n}`);
+    } else if (/^@(-\w+-)?keyframes\b/i.test(prelude)) {
+      const name = prelude.replace(/^@(-\w+-)?keyframes\s*/i, '').trim().replace(/^["']|["']$/g, '');
+      out.push(`${prelude.replace(/keyframes\s+.*/i, `keyframes ${options.prefix}${name}`)} {${scaleRem(body, options.remFactor)}}`);
     } else if (prelude.startsWith('@')) {
-      // @font-face, @keyframes, @page, @property: not tied to any element.
+      // @font-face, @page, @property: not tied to any element.
       urlWarnings(body, warnings);
       out.push(`${prelude} {${body}}`);
     } else {
-      const selectors = splitList(prelude).map((s) => scopeSelector(s, options)).filter(Boolean);
-      if (!selectors.length) continue;
+      const scoped = withRootUniversal(splitList(prelude))
+        .map(({ selector, universal }) => {
+          const result = scopeSelector(selector, options);
+          if (result && universal) result.selector = result.selector.replace(options.scope, `:where(${options.scope})`);
+          return result;
+        })
+        .filter(Boolean);
+      if (!scoped.length) continue;
       urlWarnings(body, warnings);
-      out.push(`${selectors.join(',\n')} {${body.trim() ? ` ${body.trim()} ` : ''}}`);
+      const root = scoped.every((s) => s.root) ? scoped[0].root : null;
+      const text = rewriteBody(body.trim(), options, root, warnings);
+      out.push(`${scoped.map((s) => s.selector).join(',\n')} {${text ? ` ${text} ` : ''}}`);
     }
   }
   return out;
 }
 
+/** Every plain style rule in the stylesheets, at any @media depth: { selectors, body }. */
+function flatRules(css) {
+  const rules = [];
+  const visit = (nodes) => {
+    for (const node of nodes) {
+      if (node.type !== 'block') continue;
+      if (NESTING_AT_RULES.test(node.prelude)) visit(parse(node.body));
+      else if (!node.prelude.startsWith('@')) rules.push({ selectors: splitList(node.prelude), body: node.body });
+    }
+  };
+  visit(parse(stripComments(css)));
+  return rules;
+}
+
+/**
+ * A scroll-reveal effect driven by the page's own script, recognised from its
+ * CSS: ".R .T { opacity: 0 }" hides elements until a script puts R on <html>
+ * (typically "js"), and ".R .T.S" shows them once the script adds S as they
+ * scroll into view. R and S appear on no element, T does. Returns { root,
+ * target, state } or null. The site's own script (assets/js/site.js) plays it
+ * back; without it the rules never apply and everything stays visible.
+ */
+export function detectReveal(sheets, classes) {
+  const rules = sheets.flatMap(({ css }) => flatRules(css));
+  for (const { selectors, body } of rules) {
+    if (!/(^|;)\s*opacity\s*:\s*0(?![.\d])/.test(body)) continue;
+    for (const selector of selectors) {
+      const hidden = /^(?:html)?\.([\w-]+)\s+\.([\w-]+)$/.exec(selector.trim());
+      if (!hidden || classes.has(hidden[1]) || !classes.has(hidden[2])) continue;
+      const [, root, target] = hidden;
+      for (const other of rules) {
+        for (const s of other.selectors) {
+          const shown = new RegExp(`^(?:html)?\\.${root}\\s+\\.${target}\\.([\\w-]+)$`).exec(s.trim());
+          if (shown && !classes.has(shown[1]) && /opacity\s*:\s*1|transform\s*:\s*none/.test(other.body)) return { root, target, state: shown[1] };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** How much the page's rem differs from 16px: html { font-size: 62.5% } gives 0.625. */
+function rootFontFactor(sheets) {
+  let factor = 1;
+  for (const { css } of sheets) {
+    for (const node of parse(stripComments(css))) {
+      if (node.type !== 'block' || node.prelude.startsWith('@')) continue;
+      if (!splitList(node.prelude).some((s) => /^(html|:root)$/i.test(s))) continue;
+      // "(?![\w-])", not "\b": there's no word boundary between "%" and ";".
+      const m = /(?:^|;)\s*font-size\s*:\s*(-?\d*\.?\d+)(px|%|em|rem)(?![\w-])/i.exec(node.body);
+      if (m) factor = m[2].toLowerCase() === 'px' ? Number(m[1]) / 16 : m[2] === '%' ? Number(m[1]) / 100 : Number(m[1]);
+    }
+  }
+  return factor;
+}
+
+/** Names of every @keyframes in the stylesheets. */
+function keyframeNames(sheets) {
+  const names = new Set();
+  for (const { css } of sheets) {
+    for (const m of stripComments(css).matchAll(/@(?:-\w+-)?keyframes\s+["']?([\w-]+)/gi)) names.add(m[1]);
+  }
+  return names;
+}
+
 /**
  * Scopes stylesheets (in cascade order) to `scope`, prefixing class names
  * with `prefix` and keeping only rules for `classes`/`ids` that exist.
- * Returns { css, warnings, rules } (rules: how many were kept).
+ * `rootClasses`/`rootIds` are what the old <html> and <body> carried (they
+ * now describe the wrapper); `reveal` (from detectReveal) keeps that effect's
+ * script-added classes. Returns { css, warnings, rules, remFactor }.
  */
-export function scopeCss(sheets, { scope, prefix, classes, ids }) {
+export function scopeCss(sheets, { scope, prefix, classes, ids, rootClasses = new Set(), rootIds = new Set(), reveal = null, hints = [] }) {
   const imports = [];
   const warnings = new Set();
   const out = [];
+  const roots = new Set(rootClasses);
+  if (reveal) {
+    roots.add(reveal.root);
+    classes = new Set([...classes, reveal.state]);
+  }
+  const options = {
+    scope, prefix, classes, ids, rootClasses: roots, rootIds,
+    remFactor: rootFontFactor(sheets), keyframes: keyframeNames(sheets), layers: [],
+  };
   let rules = 0;
   for (const { name, css } of sheets) {
-    const scoped = scopeNodes(parse(stripComments(css)), { scope, prefix, classes, ids }, imports, warnings);
+    const scoped = scopeNodes(parse(stripComments(css)), options, imports, warnings);
     if (scoped.length) out.push(`/* ${name.replace(/\*\//g, '')} */`, ...scoped);
     rules += scoped.length;
   }
   // Makes the scope behave like the old page's own <body>: the wrapper starts from initial
-  // values (so it doesn't inherit the site body's font size, colour or font), and inside it
-  // the site's own styles (Tailwind's preflight and base layer: heading colours, text-wrap,
-  // img/svg display…) roll back to browser defaults. Zero specificity: imported rules win.
-  const isolate = [
-    `/* The site's own styles don't apply inside ${scope}. */`,
-    `:where(${scope}) { all: initial; display: block; }`,
+  // values (so it doesn't inherit the site body's font size, colour or font) with the browser's
+  // default body margin, and inside it the site's own styles (Tailwind's preflight and base
+  // layer: heading colours, text-wrap, img/svg display, border-box pseudo-elements…) roll back
+  // to browser defaults. Zero specificity: imported rules win. When the imported CSS uses cascade
+  // layers these rules go in a layer ordered before them, so the imported layers still win.
+  const isolateRules = [
+    `:where(${scope}) { all: initial; display: block; margin: 8px; }`,
     `:where(${scope} *) { all: revert; }`,
+    `:where(${scope}, ${scope} *)::before, :where(${scope}, ${scope} *)::after { all: revert; }`,
+    `:where(${scope} *)::marker { all: revert; }`,
+    `:where(${scope} *)::placeholder { all: revert; }`,
+    `:where(${scope}, ${scope} *)::selection { all: revert; }`,
   ];
+  // Old HTML attribute styling (<font color>, <table border>…) as rules, right after the isolation
+  // that would otherwise revert it (see presentationalHints in html-source.js).
+  const hintComment = `/* Styling the old HTML gave through attributes (font color, table border, image width…). */`;
+  const resetLayer = `${prefix}reset`;
+  const hintLayer = `${prefix}attributes`;
+  const isolate = options.layers.length
+    ? [
+        `@layer ${[resetLayer, ...(hints.length ? [hintLayer] : []), ...options.layers].join(', ')};`,
+        `/* The site's own styles don't apply inside ${scope}. */`,
+        `@layer ${resetLayer} {\n${isolateRules.join('\n')}\n}`,
+        ...(hints.length ? [hintComment, `@layer ${hintLayer} {\n${hints.join('\n')}\n}`] : []),
+      ]
+    : [`/* The site's own styles don't apply inside ${scope}. */`, ...isolateRules, ...(hints.length ? [hintComment, ...hints] : [])];
+  if (options.remFactor !== 1) warnings.add(`the page set its root font size to ${options.remFactor * 16}px, so its rem values were rescaled to match`);
   const css = [...new Set(imports), ...isolate, ...out].join('\n');
-  return { css: `${css}\n`, warnings: [...warnings], rules };
+  return { css: `${css}\n`, warnings: [...warnings], rules, remFactor: options.remFactor };
+}
+
+/** Rescales rem values in an inline style attribute the same way as the stylesheet. */
+export function scaleInlineRem(html, factor) {
+  if (factor === 1) return html;
+  return html.replace(/(\sstyle\s*=\s*)(["'])(.*?)\2/gi, (_, attr, q, value) => `${attr}${q}${scaleRem(value, factor)}${q}`);
 }

@@ -43,7 +43,7 @@ import { scaffoldBody } from './lib/scaffold-templates.js';
 import { updateChangelog, appendToSiteTree } from './lib/scaffold-tree-runner.js';
 import { findJobsBlock, sanitizeHandEditedJson } from './lib/schedule-jobs.js';
 import { callClaude, stripFence, resolveImages, stripBrokenLinks, bannedPhraseWarnings } from './lib/claude-writer.js';
-import { knowledgePrompt, recordWork } from './lib/knowledge.js';
+import { knowledgePrompt, recordWork, summarizeChange } from './lib/knowledge.js';
 
 const SCHEDULE_PATH = path.join(ROOT, 'scripts/scaffold-schedule.md');
 
@@ -428,8 +428,12 @@ async function runJob(job, stagedUrlMap) {
   for (const warning of bannedPhraseWarnings(cleaned)) console.log(`  ! ${job.title} — ${warning}`);
 
   fs.mkdirSync(path.dirname(target), { recursive: true });
+  // Read before writing, so the work-log summary sees what the page was (empty for a new page).
+  const before = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
   fs.writeFileSync(target, cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`);
-  recordWork({ command: 'scaffold:schedule', file: resolved.file, instruction: `wrote "${job.title}": ${job.description || ''}` });
+  const instruction = `wrote "${job.title}": ${job.description || ''}`;
+  const summary = await summarizeChange({ apiKey, model: site.automation.model, command: 'scaffold:schedule', file: resolved.file, instruction, before, after: cleaned });
+  recordWork({ command: 'scaffold:schedule', file: resolved.file, instruction, summary });
   console.log(`  + ${resolved.file}`);
   return true;
 }

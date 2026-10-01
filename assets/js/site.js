@@ -36,4 +36,27 @@
       }
     });
   });
+
+  // A page imported with its own CSS (edit-page.js --keep-styles) may have had a
+  // scroll-reveal effect driven by its old script. The converter records it on
+  // the wrapper; this plays it back. Without this script (or IntersectionObserver)
+  // the root class is never added, so the hiding rules never apply.
+  document.querySelectorAll('.imported-page[data-reveal]').forEach(function (page) {
+    if (!('IntersectionObserver' in window)) return;
+    var data = page.dataset;
+    var stagger = /^(\d+)x(\d+)$/.exec(data.revealStagger || '');
+    var items = page.querySelectorAll('.' + data.reveal);
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add(data.revealState);
+        observer.unobserve(entry.target);
+      });
+    }, { rootMargin: data.revealMargin || '0px', threshold: Number(data.revealThreshold) || 0 });
+    items.forEach(function (item, i) {
+      if (stagger) item.style.transitionDelay = (i % Number(stagger[1])) * Number(stagger[2]) + 'ms';
+      observer.observe(item);
+    });
+    page.classList.add(data.revealRoot);
+  });
 })();

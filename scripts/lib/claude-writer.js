@@ -88,14 +88,15 @@ export async function callClaude({ apiKey, model, systemPrompt, userContent, res
 /**
  * The same call, also returning why Claude stopped ("end_turn", or
  * "max_tokens" when the reply was cut off). A failed request throws an Error
- * with the HTTP `status` on it.
+ * with the HTTP `status` on it. `messages` replaces the single user turn
+ * with a whole conversation (for a follow-up asking Claude to correct its reply).
  */
-export async function requestClaude({ apiKey, model, systemPrompt, userContent, research, maxTokens = 4000 }) {
+export async function requestClaude({ apiKey, model, systemPrompt, userContent, messages, research, maxTokens = 4000 }) {
   const body = {
     model,
     max_tokens: maxTokens,
     system: systemPrompt,
-    messages: [{ role: 'user', content: userContent }],
+    messages: messages || [{ role: 'user', content: userContent }],
   };
   if (research) body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }];
 
