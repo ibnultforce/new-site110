@@ -17,7 +17,7 @@
 <meta property="og:image" content="{{ site.url }}{{# if page.image }}{{ page.image }}{{ else }}{{ site.brand.defaultOgImage }}{{/ if }}">
 <meta name="twitter:card" content="summary_large_image">
 
-<link rel="icon" href="{{ site.brand.logoMark }}" type="image/svg+xml">
+<link rel="icon" href="{{# if site.brand.favicon }}{{ site.brand.favicon }}{{ else }}{{ site.brand.logoMark }}{{/ if }}">
 <link rel="alternate" type="application/rss+xml" title="{{ site.shortName }} blog" href="{{ site.url }}/rss.xml">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">

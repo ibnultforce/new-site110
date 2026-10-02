@@ -11,7 +11,10 @@
   "themeColor": "#0B1A2E",
   "brand": {
     "logoText": "TwinStack",
+    "logo": "",
+    "logoDark": "",
     "logoMark": "/assets/img/twinstack-mark.svg",
+    "favicon": "",
     "defaultOgImage": "/assets/img/og-default.svg"
   },
   "contact": {

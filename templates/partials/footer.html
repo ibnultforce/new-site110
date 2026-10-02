@@ -3,8 +3,9 @@
     <div class="grid gap-12 md:grid-cols-2 lg:grid-cols-[1.3fr_repeat(4,1fr)]">
       <div class="flex flex-col gap-4">
         <a href="/" class="inline-flex items-center gap-2 font-display text-xl font-bold tracking-tight text-white no-underline">
+          {{# if site.brand.logoDark }}<img src="{{ site.brand.logoDark }}" alt="{{ site.brand.logoText }}" class="block h-9 w-auto max-w-55 object-contain">{{ else }}{{# if site.brand.logo }}<img src="{{ site.brand.logo }}" alt="{{ site.brand.logoText }}" class="block h-9 w-auto max-w-55 object-contain">{{ else }}
           <img src="{{ site.brand.logoMark }}" alt="" width="26" height="26" class="size-6.5">
-          {{ site.brand.logoText }}
+          {{ site.brand.logoText }}{{/ if }}{{/ if }}
         </a>
         <p class="max-w-[34ch]">{{ site.footerTagline }} Since {{ site.foundedYear }}.</p>
         <p>

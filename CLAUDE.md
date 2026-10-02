@@ -161,6 +161,7 @@ the search index all update on the next build. Nothing else needs touching.
 | Change | File |
 | --- | --- |
 | Phone, email, booking link | `site.config.json` → `contact` |
+| Logo, icon, favicon, name | `site.config.json` → `brand`: `logo` (the full logo, in place of the icon and name in the header), `logoDark` (the dark footer's; empty uses `logo`), `logoMark` (the square icon beside `logoText` when there's no logo), `favicon` (empty uses `logoMark`). Empty means not set. The web app uploads them to `assets/img/brand/` |
 | Nav or footer structure | `content/data/navigation.json` |
 | Headline stats | `content/data/company.json` |
 | FAQ entries | `content/data/faq.json` |

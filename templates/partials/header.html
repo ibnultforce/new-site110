@@ -1,8 +1,9 @@
 <header class="sticky top-0 z-50 border-b border-line bg-white/95 backdrop-blur-sm">
   <div class="wrap flex h-17 items-center gap-8">
     <a href="/" class="inline-flex items-center gap-2 font-display text-xl font-bold tracking-tight text-ink no-underline">
+      {{# if site.brand.logo }}<img src="{{ site.brand.logo }}" alt="{{ site.brand.logoText }}" class="block h-9 w-auto max-w-55 object-contain">{{ else }}
       <img src="{{ site.brand.logoMark }}" alt="" width="26" height="26" class="size-6.5">
-      {{ site.brand.logoText }}
+      {{ site.brand.logoText }}{{/ if }}
     </a>
 
     <button type="button" data-nav-toggle aria-expanded="false" aria-controls="primary-nav" aria-label="Open menu"

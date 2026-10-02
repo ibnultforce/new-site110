@@ -10,6 +10,8 @@ export function buildJsonLd({ site, page, faqItems = [] }) {
     foundingDate: String(site.foundedYear),
     description: site.description,
     sameAs: Object.values(site.social).filter(Boolean),
+    // The full logo when the site has one uploaded, else the mark.
+    logo: `${site.url}${site.brand?.logo || site.brand?.logoMark || ''}`,
   };
 
   const graph = [org, {
