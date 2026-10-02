@@ -323,6 +323,155 @@ Instruction: ${instruction}${editImagesNote(images)}`;
   return { systemPrompt, userPrompt, isContent };
 }
 
+// Partials every page has around it; they aren't part of one page's content.
+const CHROME_PARTIALS = new Set(['base', 'header', 'footer', 'breadcrumbs']);
+
+/**
+ * What a content page shows besides its own file, found from its layout: the
+ * content/data/*.json files it reads (data.<name>), directly or through the
+ * partials it includes, whether named in the template ({{> stats }}) or by a
+ * data file ({{> [partial] }} with "partial" fields, the way home.json picks
+ * each homepage section). Returns { layout, dataFiles, partials: [{ name,
+ * source }], showsBody } — showsBody is false when nothing renders the page's
+ * own body (the homepage, unless a "section-content" section is listed).
+ */
+function pageSources(relFile, original) {
+  const layout = layoutFor(relFile, parseFrontmatter(original).data);
+  const dataUsed = new Set();
+  const partials = new Map();
+  let dynamic = false;
+  let showsBody = /\bpage\.content\b/.test(layout.source);
+  const visit = (source) => {
+    for (const m of source.matchAll(/\bdata\.([A-Za-z_]\w*)/g)) dataUsed.add(m[1]);
+    for (const m of source.matchAll(/\{\{>\s*([\w-]+)\s*\}\}/g)) addPartial(m[1]);
+    if (/\{\{>\s*\[/.test(source)) dynamic = true;
+  };
+  const addPartial = (name) => {
+    if (partials.has(name) || CHROME_PARTIALS.has(name)) return;
+    const file = path.join(ROOT, 'templates/partials', `${name}.html`);
+    if (!/^[\w-]+$/.test(name) || !fs.existsSync(file)) return;
+    const source = fs.readFileSync(file, 'utf8');
+    partials.set(name, source);
+    visit(source);
+  };
+  visit(layout.source);
+  // Sections picked by a data file's "partial" fields, and every section type it could pick.
+  if (dynamic) {
+    for (const name of [...dataUsed]) {
+      const file = path.join(ROOT, 'content/data', `${name}.json`);
+      if (!fs.existsSync(file)) continue;
+      const text = fs.readFileSync(file, 'utf8');
+      for (const m of text.matchAll(/"partial"\s*:\s*"([\w-]+)"/g)) {
+        addPartial(m[1]);
+        if (/\bpage\.content\b/.test(partials.get(m[1]) || '')) showsBody = true;
+      }
+    }
+    for (const name of partialNames()) if (/^section-/.test(name)) addPartial(name);
+  }
+  const dataFiles = [...dataUsed]
+    .map((name) => `content/data/${name}.json`)
+    .filter((file) => fs.existsSync(path.join(ROOT, file)));
+  return { layout, dataFiles, partials: [...partials].map(([name, source]) => ({ name, source })), showsBody, dynamic };
+}
+
+const FILE_BLOCK = /^=====\s*FILE:\s*(\S+)\s*=====\r?\n([\s\S]*?)\r?\n=====\s*END FILE\s*=====/gm;
+
+/**
+ * Editing a page that shows shared data (the homepage's sections, say): Claude
+ * gets the page and those data files, with the templates that render them for
+ * reference, and returns each file it changes in a FILE block.
+ */
+function buildPageEditPrompts(relFile, instruction, original, images, sources) {
+  const files = [relFile, ...sources.dataFiles];
+  // Partials a section entry can name: the ones that render a whole <section> (not section-head, a part of one).
+  const sectionPartials = sources.partials.filter((p) => /<section\b/.test(p.source)).map((p) => p.name);
+  const bodyNote = sources.showsBody
+    ? "The page's body is shown on the page."
+    : `This layout doesn't show the page's body: what the page shows is its frontmatter fields the layout reads (${sources.layout.fields.join(', ') || 'none'}) and the data files below. Writing in the body alone changes nothing visible.${sectionPartials.includes('section-content') ? ' To put free-form content on the page, write it in the body and list a section with "partial": "section-content" (it may have kicker, heading and text) where it should appear.' : ''}`;
+
+  const systemPrompt = `You edit one page of ${site.name}'s static site (${site.description}). The page is made of more than one file: its content file and the shared data files its templates read. You get them all, with the templates for reference, and an instruction. Change whichever files the instruction needs, and only those.
+
+${TEMPLATE_SYNTAX}
+
+HOW THIS PAGE IS BUILT
+${relFile} renders through templates/layouts/${sources.layout.name}.html. ${bodyNote}
+${sources.dynamic ? `Sections listed in a data file are rendered by the partial each one names in "partial". The section partials that exist: ${sectionPartials.join(', ')}. A section may only use one of these, and only the fields its template reads.\n` : ''}- Data files are shared: other pages may show them too (stats, process steps). Keep their JSON valid and their structure (the keys the templates read).
+- You can't change templates here: they decide what fields exist. If the instruction needs a new kind of section or a layout change, do what the files allow and say nothing about the rest.
+
+${contextVariables()}
+
+${HOUSE_RULES}
+- Preserve everything the instruction doesn't ask you to change: fields and their order, unrelated sections, JSON key order and indentation.
+
+${knowledgeSection()}OUTPUT
+Return each file you change, complete, in a block:
+===== FILE: <path> =====
+<the whole new file>
+===== END FILE =====
+Only files from this list: ${files.join(', ')}. Leave out the ones you don't change. Nothing outside the blocks: no commentary, no code fences.`;
+
+  const fileText = (file) => (file === relFile ? original : fs.readFileSync(path.join(ROOT, file), 'utf8'));
+  const userPrompt = `${files.map((file) => `----- ${file} -----\n${fileText(file)}\n----- end ${file} -----`).join('\n\n')}
+
+----- templates (for reference, not editable) -----
+templates/layouts/${sources.layout.name}.html:
+${sources.layout.source}
+${sources.partials.map((p) => `\ntemplates/partials/${p.name}.html:\n${p.source.trim()}`).join('\n')}
+----- end templates -----
+
+Instruction: ${instruction}${editImagesNote(images)}`;
+
+  return { systemPrompt, userPrompt, isContent: true, files };
+}
+
+/**
+ * The files in a multi-file edit reply. Returns { raw (the page, unchanged if
+ * not returned), files: [{ file, content }] (changed data files), problems,
+ * warnings }.
+ */
+function readPageEditReply(text, relFile, original, sources) {
+  const problems = [];
+  const warnings = [];
+  const allowed = new Set([relFile, ...sources.dataFiles]);
+  let raw = original;
+  const files = [];
+  const blocks = [...stripFence(text.trim()).matchAll(FILE_BLOCK)];
+  if (!blocks.length) problems.push("Claude's reply had no FILE blocks, so nothing could be read from it");
+  for (const [, file, body] of blocks) {
+    if (!allowed.has(file)) {
+      problems.push(`the reply changes ${file}, which isn't one of this page's files`);
+      continue;
+    }
+    if (file === relFile) {
+      raw = fileFromReply(body);
+      continue;
+    }
+    const current = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    const content = body.endsWith('\n') ? body : `${body}\n`;
+    try {
+      JSON.parse(content);
+    } catch (error) {
+      problems.push(`${file} is no longer valid JSON: ${error.message}`);
+      continue;
+    }
+    if (content.trim() !== current.trim()) files.push({ file, content });
+  }
+  if (raw !== original) {
+    const checked = editChecks(original, raw, true);
+    problems.push(...checked.problems, ...frontmatterProblems(original, raw));
+  }
+  // A section must name a partial that exists.
+  const known = new Set(partialNames());
+  for (const { file, content } of files) {
+    for (const m of content.matchAll(/"partial"\s*:\s*"([^"]*)"/g)) {
+      if (!known.has(m[1])) problems.push(`${file} lists a section with partial "${m[1]}", which doesn't exist`);
+    }
+  }
+  if (raw === original && !files.length && blocks.length) warnings.push('Claude changed nothing');
+  for (const { file } of files) warnings.push(`also changes ${file}, which other pages may show too`);
+  return { raw, files, problems, warnings };
+}
+
 /** The part of an edit prompt that tells Claude how to use the supplied images. */
 function editImagesNote(images) {
   if (!images.length) return '';
@@ -1652,12 +1801,18 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
   }
 
   const layout = generate || convert ? layoutFor(relFile, parseFrontmatter(base).data) : null;
+  // A page that shows shared data (the homepage's sections) is edited together with that data.
+  const sources = mode === 'edit' && relFile.startsWith('content/') && relFile.endsWith('.md') ? pageSources(relFile, original) : null;
+  const multi = Boolean(sources?.dataFiles.length);
+  if (multi) console.log(`  With: ${sources.dataFiles.join(', ')} (what the page shows)${sources.showsBody ? '' : ", its body isn't shown"}`);
   const buildPrompts = (list) =>
     generate
       ? buildGeneratePrompts(relFile, instruction, original, list, layout)
       : convert
         ? buildConvertPrompts(relFile, instruction, base, list, layout, htmlPage)
-        : buildEditPrompts(relFile, instruction, original, list);
+        : multi
+          ? buildPageEditPrompts(relFile, instruction, original, list, sources)
+          : buildEditPrompts(relFile, instruction, original, list);
   const { systemPrompt, userPrompt, isContent } = buildPrompts(images);
 
   if (!apiKey) {
@@ -1677,7 +1832,12 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
   let checks = [];
   let problems;
   let warnings;
-  if (convert) {
+  // Data files a multi-file page edit changes, written with the page.
+  let extraFiles = [];
+  if (multi) {
+    ({ raw, files: extraFiles, problems, warnings } = readPageEditReply(reply.text, relFile, original, sources));
+    if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the files are incomplete`);
+  } else if (convert) {
     ({ raw, problems, warnings, checks } = await reviewConversion({ reply, buildPrompts, original: base, htmlPage }));
     if (dropped.length) warnings.push(`replaced the old page's content: its body and ${dropped.join(', ')}`);
   } else {
@@ -1690,11 +1850,12 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
   if (dryRun) {
     console.log(`----- proposed ${relFile} (not written) -----\n`);
     console.log(raw);
+    for (const extra of extraFiles) console.log(`----- proposed ${extra.file} (not written) -----\n\n${extra.content}`);
     if (problems.length) console.log(`\n  problem: ${problems.join('\n  problem: ')}`);
     if (warnings.length) console.log(`\n  warning: ${warnings.join('\n  warning: ')}`);
     if (proposalOut) {
-      const summary = await summaryFor({ mode, relFile, instruction: instruction || defaultLogInstruction(mode, htmlPage?.file), before: original, after: raw });
-      writeProposal({ relFile, mode, instruction, images: reply.images, raw, problems, warnings, source: htmlPage?.file, checks, summary });
+      const summary = await summaryFor({ mode, relFile, instruction: instruction || defaultLogInstruction(mode, htmlPage?.file), before: withExtras(relFile, original, extraFiles, 'before'), after: withExtras(relFile, raw, extraFiles, 'after') });
+      writeProposal({ relFile, mode, instruction, images: reply.images, raw, problems, warnings, source: htmlPage?.file, files: extraFiles, checks, summary });
     }
     return false;
   }
@@ -1704,17 +1865,26 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     return false;
   }
 
+  const summaryBefore = withExtras(relFile, original, extraFiles, 'before');
   fs.writeFileSync(targetPath, raw.endsWith('\n') ? raw : `${raw}\n`);
+  for (const extra of extraFiles) fs.writeFileSync(path.join(ROOT, extra.file), extra.content);
   const logInstruction = instruction || defaultLogInstruction(mode, htmlPage?.file);
   recordWork({
     command: LOG_COMMANDS[mode],
     file: relFile,
     instruction: logInstruction,
-    summary: await summaryFor({ mode, relFile, instruction: logInstruction, before: original, after: raw }),
+    summary: await summaryFor({ mode, relFile, instruction: logInstruction, before: summaryBefore, after: withExtras(relFile, raw, extraFiles, 'after') }),
   });
   for (const warning of warnings) console.log(`  warning: ${warning}`);
-  console.log(`\n  Wrote ${relFile}  (${original.split('\n').length} -> ${raw.split('\n').length} lines)\n`);
+  console.log(`\n  Wrote ${relFile}  (${original.split('\n').length} -> ${raw.split('\n').length} lines)${extraFiles.length ? `, ${extraFiles.map((f) => f.file).join(', ')}` : ''}\n`);
   return true;
+}
+
+/** A page and the data files an edit changed, as one text, so the work-log summary sees all of the change. */
+function withExtras(relFile, page, extraFiles, side) {
+  if (!extraFiles.length) return page;
+  const text = (f) => (side === 'before' ? fs.readFileSync(path.join(ROOT, f.file), 'utf8') : f.content);
+  return [`----- ${relFile} -----\n${page}`, ...extraFiles.map((f) => `----- ${f.file} -----\n${text(f)}`)].join('\n');
 }
 
 const LOG_COMMANDS = { edit: 'page:edit', generate: 'page:generate', convert: 'page:convert' };

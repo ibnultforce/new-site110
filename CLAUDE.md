@@ -195,6 +195,21 @@ file. It refuses to write if Claude's reply was cut off at the token limit,
 looks truncated, drops a required frontmatter field, or has unbalanced
 `{{#if}}`/`{{#each}}` blocks.
 
+A content page whose layout reads shared data (`pageSources`: `data.<name>` in
+its layout and the partials it includes, by name or through a data file's
+`"partial"` fields) is edited together with that data. The homepage is the
+main case: its layout shows the hero from `home.md`'s frontmatter and the
+sections listed in `content/data/home.json`, never `home.md`'s body. Claude
+then gets the page, those `content/data/*.json` files and the templates for
+reference, and returns each file it changes in a `===== FILE: <path> =====`
+block (`buildPageEditPrompts`, `readPageEditReply`). A data file must stay
+valid JSON and a section may only name a partial that exists; the changed data
+files go in the proposal's `"files"` and are written with the page. The
+`section-content` partial shows the page's body as a section, which is how
+free-form content gets onto the homepage: list
+`{ "partial": "section-content", "heading": … }` in `home.json` where it
+should appear.
+
 **Write a page yourself, then let Claude finish it**
 
 ```bash
