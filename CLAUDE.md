@@ -220,8 +220,22 @@ npm run page:edit -- about-us --from-html=old-site/about.html "Put the history t
 ```
 
 `--from-html=<file>` takes an HTML file inside the repo (up to 2 MB) and
-replaces the page's body with its content, converted to markdown. The target
-must already exist under `content/`, because its frontmatter is kept.
+replaces the page with its content, converted to markdown. The target must
+already exist under `content/`, because it decides where the page lives. The
+replacement is complete: before Claude sees the page, `replacedPage` cuts its
+frontmatter down to `REPLACE_KEEPS` (the locked fields plus `title`,
+`description`, `noindex`, `navHidden`, `author`, `category`, `tags`) and drops
+its body, so the old hero, highlights, FAQ topics, call to action and copy
+can't carry over. The old description always goes, and the old title goes
+when the HTML has a `<title>` or `<h1>`. A meta description of at most 160
+characters is put in as the description by code; `replacementProblems`
+refuses a reply that changes it or has no title, and Claude retries. In
+markdown the title comes from the `<h1>`; with `--keep-styles` from the
+`<title>` without the old site's name, because the page shows its own heading.
+Claude fills other layout fields only from the HTML. The dropped fields are
+listed as a warning. Replies are read with `fileFromReply`, which takes the
+file from its frontmatter on, because a review reply sometimes starts with a
+checklist.
 `scripts/lib/html-source.js` cleans the HTML before Claude sees it. It
 removes scripts, styles, comments and embedded `data:` images. When `<main>`
 holds most of the text, it removes everything outside `<main>`. It also
@@ -319,7 +333,7 @@ defaults. Matching rules do the same for `::before`/`::after` (the reset
 would make them border-box and resize them), `::marker`, `::placeholder` and
 `::selection`.
 
-`revert` also removes the styling browsers give old HTML attributes. So
+`revert` also removes the styling browsers give old HTML attributes (and the 1px padding a `<table>` gives its cells even without `cellpadding`). So
 `presentationalHints` in `html-source.js` turns those attributes into
 zero-specificity rules placed after the isolation: `<font color face size>`,
 `bgcolor`, `background`, `align`, `valign`, `width`/`height` (with the image's
@@ -370,10 +384,30 @@ The browser comes from `CHROME_PATH`, the usual install locations or PATH. It
 needs Node 22+ for the built-in WebSocket. Without either, those passes are
 skipped and say why. `--no-render-check` skips them on purpose. The results
 are printed and saved as the proposal's `"checks"`.
-`templates/partials/base.html` loads `page.stylesheet` after `main.css`, and
-`templates/layouts/page.html` renders a page that has one edge to edge, without
-the hero or `.prose-site`. Other layouts load the stylesheet but keep their
-own structure.
+`templates/partials/base.html` loads `page.stylesheet` after `main.css`. A
+page whose `stylesheet` is under `/assets/css/imported/` renders through
+`templates/layouts/imported.html` whatever its `layout` (`scripts/build.js`):
+its HTML edge to edge between the site's header and footer, with no hero,
+`.prose-site`, FAQ, call to action or related items, and no FAQ schema. Claude
+only writes `title` and `description`; the frontmatter is limited to
+`REPLACE_KEEPS` after every reply, so no old content field survives.
+
+**Global stylesheets.** A `.css` line in `scripts/site-tree.md`
+(`- css/style.css`) declares CSS the design's pages share. Scaffolding creates
+it as `styles/global/<path>` (from `scripts/site-tree-content/<path>` if that
+exists, otherwise a starter comment); `globalStylesheets()` in
+`lib/scaffold-tree-runner.js` lists them. Every `--keep-styles` conversion
+applies the declared globals the page links, without an upload
+(`globalSheets`/`standIns` in `edit-page.js`): each one a `<link>` points at
+(same file name, path suffix preferred) takes that link's place in the
+cascade. A global the page doesn't link isn't applied (with a warning): the
+page may come from another design, and its reset or root font size would
+change it. Uploads still win: a `--css` upload with a global's file
+name is used for the page and saved over `styles/global/<path>` (it's in the
+proposal's `"files"`), with a warning that pages converted earlier keep the
+old version until they're converted again. Global CSS is scoped and pruned
+into each page's own stylesheet like the rest, so it never reaches the site's
+own pages, header or footer. Tailwind doesn't scan `styles/global/`.
 
 Warnings list linked stylesheets that weren't uploaded (other external ones
 are never fetched), `url()` references to files the site doesn't have, and
@@ -439,7 +473,9 @@ should have, each optionally followed by `— instruction` text for Claude to
 write the body from. `npm run scaffold` walks it and creates whatever markdown
 files are missing (`--force` to also overwrite existing ones, `--file=` to use
 a different tree file); `npm run scaffold:preview` prints the plan without
-writing.
+writing. A line whose path ends in `.css` declares a global stylesheet and is
+scaffolded to `styles/global/<path>` (see "Global stylesheets" above). Tree
+paths must be relative and use only letters, digits, `_`, `-`, `.` and `/`.
 
 `scripts/scaffold-schedule.md` holds a fenced JSON array of dated one-off
 jobs (`location`, `title`, `date`, `description`, plus optional `content`,

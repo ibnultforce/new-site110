@@ -155,7 +155,7 @@ function fileNotes(rel) {
     return `This file is read by scripts/scaffold-schedule.js. The \`\`\`json fenced block that holds a JSON array is the live job list: it must stay one valid JSON array of job objects. Jobs with "done": true have already run; leave them exactly as they are unless the instruction is about them. Other \`\`\`json blocks in the prose are examples, not jobs.`;
   }
   if (rel === TREE_FILE) {
-    return 'This file is read by scripts/scaffold-tree.js. Every page is one bullet: "- path.html", optionally followed by " — " and an instruction for Claude. Indentation is for readability only. Keep that format for every page line, and keep paths ending in .html.';
+    return 'This file is read by scripts/scaffold-tree.js. Every page is one bullet: "- path.html", optionally followed by " — " and an instruction for Claude. Indentation is for readability only. Keep that format for every page line, and keep paths ending in .html. A bullet whose path ends in .css ("- css/style.css") declares a global stylesheet shared by every converted page: keep those lines as they are unless asked to change them.';
   }
   if (rel.startsWith(TREE_CONTENT_DIR)) {
     return 'This file is copied verbatim into content/ as a site page by scripts/scaffold-tree.js. Keep its "---" frontmatter block valid (flat "key: value" lines, lists as "- item"), and keep any {{ … }} template syntax intact.';

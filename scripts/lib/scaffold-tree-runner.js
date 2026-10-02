@@ -23,6 +23,12 @@
  * scripts/site-tree.md), its contents are written verbatim instead of the
  * generic frontmatter skeleton — the instruction text after " — " is ignored
  * for that path. Any path with no matching file scaffolds exactly as before.
+ *
+ * Global stylesheets: a line whose path ends in ".css" (e.g. "- css/style.css")
+ * declares one of the design's shared stylesheets. It's scaffolded to
+ * styles/global/<path> (from site-tree-content/<path> verbatim if that exists,
+ * otherwise a starter comment), and scripts/edit-page.js --keep-styles applies
+ * every declared one to each page it converts. See globalStylesheets().
  */
 
 import fs from 'node:fs';
@@ -33,6 +39,16 @@ import { generateChangelog } from './changelog.js';
 
 /* -------------------------------------------------------------- parse tree */
 
+/** Where a global stylesheet declared in the tree lives in the repo. */
+export const GLOBAL_CSS_DIR = 'styles/global';
+
+/** A tree path, or null if it isn't a safe relative path to a .html page or a .css stylesheet. */
+function treePath(raw) {
+  const value = raw.trim().replace(/^\/+/, '');
+  if (!/\.(html|css)$/.test(value) || !/^[\w./-]+$/.test(value)) return null;
+  return value.split('/').some((seg) => !seg || seg === '.' || seg === '..') ? null : value;
+}
+
 function parseTree(text) {
   const nodes = [];
   for (const raw of text.split('\n')) {
@@ -42,11 +58,11 @@ function parseTree(text) {
 
     const rest = bullet[1];
     const split = /^(\S+)\s+(?:—|--)\s+(.*)$/.exec(rest);
-    const rawPath = (split ? split[1] : rest).trim();
+    const rawPath = treePath(split ? split[1] : rest);
     const instruction = split ? split[2].trim() : '';
-    if (!rawPath || !rawPath.endsWith('.html')) continue;
+    if (!rawPath) continue;
 
-    nodes.push({ rawPath, instruction });
+    nodes.push({ rawPath, instruction, kind: rawPath.endsWith('.css') ? 'css' : 'page' });
   }
   return nodes;
 }
@@ -66,9 +82,35 @@ function titleFromSlug(slug) {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** Absolute path to the predefined content file for one tree path, if any. */
+/** Absolute path to the predefined content file for one tree path, if any (a stylesheet's keeps its name). */
 function predefinedContentFile(treeFile, rawPath) {
   return path.join(path.dirname(treeFile), 'site-tree-content', rawPath.replace(/\.html$/, '.md'));
+}
+
+/**
+ * The global stylesheets the site tree declares, in tree order:
+ * [{ path: "css/style.css", file: "styles/global/css/style.css", exists }].
+ */
+export function globalStylesheets(treeFile = path.join(ROOT, 'scripts/site-tree.md')) {
+  if (!fs.existsSync(treeFile)) return [];
+  return parseTree(fs.readFileSync(treeFile, 'utf8'))
+    .filter((node) => node.kind === 'css')
+    .map(({ rawPath }) => {
+      const file = `${GLOBAL_CSS_DIR}/${rawPath}`;
+      return { path: rawPath, file, exists: fs.existsSync(path.join(ROOT, file)) };
+    });
+}
+
+/** What a newly scaffolded global stylesheet holds until the design's CSS is put in. */
+function starterStylesheet(rawPath) {
+  const name = path.posix.basename(rawPath);
+  return `/* Global stylesheet "${rawPath}", declared in scripts/site-tree.md.
+   Put the design's shared CSS here (the file its pages link as ${name}), or
+   upload ${name} with the next page you convert with --keep-styles and it's
+   saved here. Every page converted with --keep-styles that links ${name}
+   gets this file, scoped to that page, in the place its <link> had. Convert
+   a page again to pick up later changes. */
+`;
 }
 
 function segmentsFor(rawPath) {
@@ -195,7 +237,7 @@ export function runScaffoldTree({ treeFile, dryRun = false, force = false }) {
   const nodes = parseTree(fs.readFileSync(treeFile, 'utf8'));
 
   if (!nodes.length) {
-    console.log(`\n  No page paths found in ${path.relative(ROOT, treeFile)}.\n`);
+    console.log(`\n  No page or stylesheet paths found in ${path.relative(ROOT, treeFile)}.\n`);
     return { created: 0, skipped: 0, failed: 0, planned: 0 };
   }
 
@@ -205,7 +247,29 @@ export function runScaffoldTree({ treeFile, dryRun = false, force = false }) {
 
   console.log(`\n  Scaffolding from ${path.relative(ROOT, treeFile)} (${nodes.length} path${nodes.length === 1 ? '' : 's'})\n`);
 
-  for (const { rawPath, instruction } of nodes) {
+  for (const { rawPath, instruction, kind } of nodes) {
+    if (kind === 'css') {
+      const file = `${GLOBAL_CSS_DIR}/${rawPath}`;
+      const target = path.join(ROOT, file);
+      const exists = fs.existsSync(target);
+      if (exists && !force) {
+        console.log(`  = ${file}  (exists, skipped)`);
+        skipped++;
+        continue;
+      }
+      const predefinedFile = predefinedContentFile(treeFile, rawPath);
+      const predefined = fs.existsSync(predefinedFile);
+      if (dryRun) {
+        console.log(`  + ${file}  (global stylesheet)${exists ? '  (would overwrite)' : ''}${predefined ? '  [predefined]' : ''}`);
+        continue;
+      }
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, predefined ? fs.readFileSync(predefinedFile, 'utf8') : starterStylesheet(rawPath));
+      console.log(`  + ${file}  (global stylesheet)${exists ? '  (overwritten)' : ''}${predefined ? '  (from predefined template)' : ''}`);
+      created++;
+      continue;
+    }
+
     let node;
     try {
       node = resolveNode(rawPath, site, dirSlugMap);

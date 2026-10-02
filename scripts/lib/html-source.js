@@ -391,7 +391,9 @@ export function presentationalHints(html, scope, bodyAttrs = '') {
     if (align) {
       if (name === 'table') add(sel(self('align')), align === 'center' ? 'margin-left:auto;margin-right:auto' : /^(left|right)$/.test(align) ? `float:${align}` : '');
       else if (/^(img|iframe|object|embed|video)$/.test(name)) add(sel(self('align')), /^(left|right)$/.test(align) ? `float:${align}` : /^(top|middle|bottom|baseline)$/.test(align) ? `vertical-align:${align}` : '');
-      else if (/^(div|p|h[1-6]|td|th|tr|thead|tbody|tfoot|caption|legend|center)$/.test(name)) add(sel(self('align')), `text-align:${align === 'center' ? '-webkit-center' : align}`);
+      // Browsers map align to -webkit-left/right/center, which also align block children (a
+      // nested table). The plain value comes first for browsers without the prefixed one.
+      else if (/^(div|p|h[1-6]|td|th|tr|thead|tbody|tfoot|caption|legend|center)$/.test(name)) add(sel(self('align')), /^(left|right|center)$/.test(align) ? `text-align:${align};text-align:-webkit-${align}` : `text-align:${align}`);
     }
     const valign = (get('valign') || '').toLowerCase();
     if (valign && /^(td|th|tr|thead|tbody|tfoot|col)$/.test(name)) add(sel(self('valign')), `vertical-align:${valign}`);
@@ -422,6 +424,9 @@ export function presentationalHints(html, scope, bodyAttrs = '') {
   if (attribute(bodyAttrs, 'text')) body.push(`color:${attribute(bodyAttrs, 'text')}`);
   if (/^(https?:)?\/\/|^\//.test(attribute(bodyAttrs, 'background') || '')) body.push(`background-image:url(${q(attribute(bodyAttrs, 'background'))})`);
   const out = [...rules].map(([selector, decl]) => `${selector} { ${decl} }`);
+  // A table gives its cells 1px of padding as attribute styling even without cellpadding (it
+  // isn't in the browser's default stylesheet), so the isolation's revert removes it too.
+  if (/<table\b/i.test(html)) out.unshift(`${sel('table:not([cellpadding]) > * > tr > td')}, ${sel('table:not([cellpadding]) > * > tr > th')} { padding:1px; }`);
   if (body.length) out.unshift(`:where(${scope}) { ${body.join(';')}; }`);
   return out;
 }

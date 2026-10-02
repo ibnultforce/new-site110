@@ -54,9 +54,17 @@ async function launch(executable) {
     '--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check',
     '--allow-file-access-from-files', `--remote-debugging-port=${port}`, `--user-data-dir=${userDir}`, 'about:blank',
   ], { stdio: 'ignore' });
+  // The profile is removed once the browser has gone. On Windows its files can stay locked a
+  // little longer, so removal retries, and a leftover temp folder never fails the run.
+  const removeProfile = () => {
+    try {
+      fs.rmSync(userDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
+    } catch {}
+  };
   const close = () => {
+    if (browser.exitCode !== null || browser.signalCode !== null) removeProfile();
+    else browser.once('exit', () => setTimeout(removeProfile, 300).unref());
     try { browser.kill(); } catch {}
-    setTimeout(() => fs.rmSync(userDir, { recursive: true, force: true }), 1500).unref();
   };
   let ws;
   for (let i = 0; i < 75 && !ws; i++) {

@@ -23,8 +23,11 @@
  * say) into the page's markdown. The site's header, footer, navigation,
  * sidebars, scripts and styles are cut out before Claude sees the HTML
  * (scripts/lib/html-source.js), and Claude leaves out any it still finds.
- * The wording is kept, the page's frontmatter is kept, and the page's current
- * body is replaced. The instruction is optional extra direction.
+ * The wording is kept. The HTML replaces the page completely: only the fields
+ * that identify the page (REPLACE_KEEPS: slug, url, layout…) survive, and its
+ * old body and content fields (hero, highlights, FAQ topics, call to action…)
+ * are dropped before Claude sees it, so nothing of the old page carries over.
+ * The instruction is optional extra direction.
  *
  *   node scripts/edit-page.js <page> --from-html=old/about.html ["<extra direction>"]
  *   node scripts/edit-page.js <page> --from-html=old/about.html --dry-run
@@ -35,7 +38,11 @@
  * plus any --css=<file.css> (its linked stylesheets, repeatable) are scoped to
  * that page and saved as assets/css/imported/<page>.css, which the page loads
  * through its "stylesheet" frontmatter field. Claude only writes the
- * frontmatter. See scripts/lib/css-scope.js.
+ * frontmatter. See scripts/lib/css-scope.js. The global stylesheets declared
+ * in scripts/site-tree.md ("- css/style.css" lines, kept in styles/global/)
+ * are applied to every such page that links them, without being uploaded, and a --css upload
+ * with the same name replaces the stored one. An imported page renders edge to
+ * edge whatever its layout (scripts/build.js).
  *
  *   node scripts/edit-page.js <page> --from-html=old/about.html --keep-styles --css=old/site.css
  *
@@ -100,6 +107,7 @@ import {
   visibleText,
 } from './lib/html-source.js';
 import { detectReveal, scaleInlineRem, scopeCss } from './lib/css-scope.js';
+import { globalStylesheets } from './lib/scaffold-tree-runner.js';
 
 const COMMANDS_PATH = path.join(ROOT, 'scripts/page-commands.json');
 const DEFAULT_QUEUE_COMMENT = 'Queue of pending edits for `npm run page:edit` (no arguments). Each entry is one job: { file, instruction }, optionally with "images": [...] and "mode": "generate" (turn the file\'s own draft into the finished page; the instruction may then be empty). Running with no arguments processes every entry in order, writes each one, then removes it from this queue. Add entries by hand any time; running `npm run page:edit -- <page> "<instruction>"` with arguments applies that edit immediately instead and never touches this file.';
@@ -110,6 +118,11 @@ const MAX_VISION_IMAGES = 20;
 const MAX_VISION_BYTES = 18 * 1024 * 1024;
 // Fields that decide where a page lives and whether it's published.
 const LOCKED_FIELDS = ['slug', 'url', 'layout', 'date', 'draft', 'order'];
+// What a converted page keeps of the page it replaces: where it lives, whether it's listed and
+// indexed, and the listing facts an HTML page doesn't carry. The title is kept only as a fallback
+// and the description never (see replacedPage). Everything else (body, hero, highlights, FAQ topics, call to action…) is the old
+// page's content and goes.
+const REPLACE_KEEPS = [...LOCKED_FIELDS, 'title', 'description', 'noindex', 'navHidden', 'author', 'category', 'tags'];
 
 const argv = process.argv.slice(2);
 const flag = (name) => {
@@ -440,12 +453,11 @@ ${urls.map((u) => `    ${u}`).join('\n')}
 - Never write "{{" or "}}": this file is rendered as a template, so literal braces break it. Reword around them.
 
 FRONTMATTER
-- Keep every existing field and its value. A value that is a note to the writer rather than content — what "npm run new" leaves, such as "Under 160 characters, written for search results." or "One sentence on what this page is for." — counts as empty: replace it from the HTML, or leave the field empty if the HTML has nothing for it.
-- Keep the title unless it's empty or a placeholder, in which case use the page's main heading (or else the HTML <title> without the site name).
-- Never add, change or remove ${LOCKED_FIELDS.join(', ')}: the site derives them when they're missing, and changing them moves or unpublishes the page.
-- If description is missing, empty or a placeholder, use the HTML's meta description if there is one (at most 160 characters), or else write one plain sentence summarising the page.
-- Fill in other fields this layout reads (listed below) that are missing or empty, but only from material that is in the HTML — for example an intro paragraph under the main heading as heroText, or a list that matches deliverables. Material moved into such a field shouldn't also be repeated in the body.
-- The page's current body is replaced by the converted content.
+- The HTML page completely replaces the page that was there. The current file below has only the fields that identify the page: the old page's body and content fields (hero text, highlights, FAQ topics, call to action…) have been removed and must not come back.
+- title: the page's main heading (its <h1>), or else the HTML <title> without the site name. Keep the current title only if the HTML has neither.
+- description: if the current file has one, it's the HTML's meta description: keep it exactly. Otherwise use the HTML's meta description shortened to at most 160 characters if it's longer, or else write one plain sentence summarising the page. A current description that is a note to the writer (such as "Under 160 characters, written for search results.") counts as missing.
+- Keep every other existing field and its value. Never add, change or remove ${LOCKED_FIELDS.join(', ')}: changing them moves or unpublishes the page.
+- Fill in fields this layout reads (listed below), but only from material that is in the HTML — for example an intro paragraph under the main heading as heroText, or a list that matches deliverables. Leave out any field the HTML has nothing for. Material moved into such a field shouldn't also be repeated in the body.
 
 ${FRONTMATTER_SYNTAX}
 
@@ -473,7 +485,7 @@ Return only the raw contents of the finished file, starting with the opening "--
 
   const userPrompt = `File: ${relFile}
 
------ current file (keep its frontmatter, replace its body) -----
+----- current file (what's left of the old page: the fields that identify it) -----
 ${original}
 ----- end current file -----
 
@@ -493,11 +505,11 @@ function buildStyledFrontmatterPrompts(relFile, instruction, original, page, tex
   const systemPrompt = `You write the frontmatter for a page on ${site.name}'s website (${site.description}). The page's body is an existing web page's HTML, copied as-is with its own styling, so you don't write or change the body: you return only the frontmatter block.
 
 FRONTMATTER
-- Keep every existing field and its value. A value that is a note to the writer rather than content — what "npm run new" leaves, such as "Under 160 characters, written for search results." or "One sentence on what this page is for." — counts as empty: replace it from the page, or leave the field empty if the page has nothing for it.
-- Keep the title unless it's empty or a placeholder, in which case use the page's main heading (or else the HTML <title> without the site name).
-- Never add, change or remove ${LOCKED_FIELDS.join(', ')}: the site derives them when they're missing, and changing them moves or unpublishes the page.
-- If description is missing, empty or a placeholder, use the HTML's meta description if there is one (at most 160 characters), or else write one plain sentence summarising the page from its text.
-- Don't add fields the layout shows above or around the body (heroHeading, heroText, kicker, highlights…): the page shows its own HTML instead, so they would never appear. Leave existing ones as they are.
+- This page completely replaces the one that was there. The current file below has only the fields that identify the page; the old page's content is gone and must not come back.
+- title: the page's name, as its HTML <title> gives it without the old site's name ("About us | Northwind" gives "About us"). The page shows its own heading, so the title is only used in the browser tab, search results and listings: keep it short. If the <title> is missing or is only the site's name, use a short form of the main heading (<h1>). Keep the current title only if the page has neither.
+- description: if the current file has one, it's the HTML's meta description: keep it exactly. Otherwise use the HTML's meta description shortened to at most 160 characters if it's longer, or else write one plain sentence summarising the page from its text.
+- Keep every other field and its value exactly. Never add, change or remove ${LOCKED_FIELDS.join(', ')}: changing them moves or unpublishes the page.
+- Add no other fields (heroHeading, heroText, kicker, highlights…): the page shows its own HTML edge to edge, so they would never appear, and they're removed anyway.
 - Add nothing that isn't in the page's text. British spelling, no exclamation marks.
 
 ${FRONTMATTER_SYNTAX}
@@ -507,7 +519,7 @@ Return only the frontmatter block: a line "---", the fields, and a closing line 
 
   const userPrompt = `File: ${relFile}
 
------ current file -----
+----- current file (what's left of the old page: the fields that identify it) -----
 ${original}
 ----- end current file -----
 
@@ -542,11 +554,73 @@ function siteImage(src) {
   return null;
 }
 
+const sheetName = (ref) => path.posix.basename(String(ref).split(/[?#]/)[0]).toLowerCase();
+
+/**
+ * The global stylesheets (declared in scripts/site-tree.md, kept in
+ * styles/global/) for one conversion. An upload with a global's file name
+ * replaces it: it's used for this page and saved over the stored one
+ * (`globalUpdates`), so later pages get it without uploading it again.
+ * Returns { globals: [{ path, file, css }], globalUpdates: [{ file, content }], notes }.
+ */
+function globalSheets(uploads) {
+  const globals = [];
+  const globalUpdates = [];
+  const notes = [];
+  const taken = new Set();
+  for (const declared of globalStylesheets()) {
+    const current = declared.exists ? fs.readFileSync(path.join(ROOT, declared.file), 'utf8') : null;
+    const upload = uploads.find((u) => !taken.has(u) && sheetName(u.file) === sheetName(declared.path));
+    if (!upload) {
+      if (current !== null) globals.push({ ...declared, css: current });
+      continue;
+    }
+    taken.add(upload);
+    if (current === upload.css) continue;
+    globalUpdates.push({ file: declared.file, content: upload.css });
+    notes.push(current === null || /^\/\* Global stylesheet "/.test(current)
+      ? `${sheetName(upload.file)} is saved as the site's global stylesheet ${declared.file}, so later pages get it without uploading it`
+      : `${sheetName(upload.file)} replaces the global stylesheet ${declared.file}. Pages converted before keep the earlier version until they're converted again`);
+  }
+  return { globals, globalUpdates, notes };
+}
+
+/**
+ * The stylesheets that stand in for a page's <link>s: the upload with the
+ * link's file name, or else the global stylesheet its href points at.
+ * `forLink(href)` takes each one once ({ name, css } or null); `rest()` is the
+ * uploads no link took, which apply before the page's own CSS. A global
+ * stylesheet the page doesn't link is left out: the page wasn't designed with
+ * it (it may come from another design), and the copy must look like it.
+ */
+function standIns(uploads, globals) {
+  const used = new Set();
+  const take = (sheet, name) => {
+    used.add(sheet);
+    return { name, css: sheet.css };
+  };
+  return {
+    forLink(href) {
+      const base = sheetName(href);
+      const upload = uploads.find((u) => !used.has(u) && sheetName(u.file) === base);
+      if (upload) return take(upload, path.posix.basename(upload.file));
+      const bare = href.split(/[?#]/)[0].replace(/^(?:\.{1,2}\/|\/)+/, '');
+      const named = globals.filter((g) => !used.has(g) && sheetName(g.path) === base);
+      const global = named.find((g) => bare === g.path || bare.endsWith(`/${g.path}`) || g.path.endsWith(`/${bare}`)) ?? named[0];
+      return global ? take(global, global.file) : null;
+    },
+    rest: () => uploads.filter((u) => !used.has(u)).map((u) => ({ name: path.posix.basename(u.file), css: u.css })),
+    // The global stylesheets the page's links took.
+    usedGlobals: () => globals.filter((g) => used.has(g)),
+  };
+}
+
 /**
  * --keep-styles: the body (the old page's HTML in one raw block, inside the
  * scope wrapper), the scoped stylesheet and the web fonts it needs. `cssFiles`
  * stand in for the page's linked stylesheets: one whose name matches a
  * <link href> takes that link's place in the cascade, and the rest come first.
+ * The site tree's global stylesheets stand in for the links that point at them.
  */
 function buildStyledPage(source, cssFiles, relFile) {
   const { file, html } = readHtmlSource(source);
@@ -567,9 +641,12 @@ function buildStyledPage(source, cssFiles, relFile) {
     warnings.push(`an inline style refers to ${m[1]}, which isn't in this site, so that background won't load`);
   }
 
-  // The page's own cascade: <style> blocks and <link>ed sheets in order, uploads standing in for the links.
+  // The page's own cascade: <style> blocks and <link>ed sheets in order, uploads and the site
+  // tree's global stylesheets standing in for the links.
   const uploads = cssFiles.map((f) => readCssSource(f));
-  const used = new Set();
+  const { globals, globalUpdates, notes } = globalSheets(uploads);
+  warnings.push(...notes);
+  const links = standIns(uploads, globals);
   const sheets = [];
   const fonts = [];
   const inMedia = (css, media) => (media ? `@media ${media} {\n${css}\n}` : css);
@@ -578,11 +655,9 @@ function buildStyledPage(source, cssFiles, relFile) {
       sheets.push({ name: 'inline <style>', css: inMedia(entry.inline, entry.media) });
       continue;
     }
-    const base = path.posix.basename(entry.href.split(/[?#]/)[0]).toLowerCase();
-    const match = uploads.find((u, i) => !used.has(i) && path.posix.basename(u.file).toLowerCase() === base);
+    const match = links.forLink(entry.href);
     if (match) {
-      used.add(uploads.indexOf(match));
-      sheets.push({ name: path.posix.basename(match.file), css: inMedia(match.css, entry.media) });
+      sheets.push({ name: match.name, css: inMedia(match.css, entry.media) });
     } else if (FONT_STYLESHEET.test(entry.href)) {
       // Only @font-face rules: loaded from the page's <head> like the original did, so text doesn't
       // show in fallback fonts first.
@@ -593,7 +668,12 @@ function buildStyledPage(source, cssFiles, relFile) {
       warnings.push(`the page links ${entry.href}; that stylesheet isn't copied. Download it and upload it with the HTML to include it`);
     }
   }
-  const unmatched = uploads.filter((_, i) => !used.has(i)).map((u) => ({ name: path.posix.basename(u.file), css: u.css }));
+  const unmatched = links.rest().map(({ name, css }) => ({ name, css }));
+  const appliedGlobals = links.usedGlobals();
+  const unlinked = globals.filter((g) => !appliedGlobals.includes(g));
+  if (unlinked.length) {
+    warnings.push(`not applied: ${unlinked.map((g) => g.file).join(', ')}, because the page doesn't link ${unlinked.length === 1 ? 'it' : 'them'}`);
+  }
   const allSheets = [...unmatched, ...sheets];
   const reveal = detectReveal(allSheets, page.classes);
   const scoped = scopeCss(allSheets, {
@@ -613,6 +693,10 @@ function buildStyledPage(source, cssFiles, relFile) {
     file,
     html,
     uploads,
+    // The site tree's global stylesheets the page links, which are applied to it.
+    globals: appliedGlobals,
+    // Global stylesheets an upload replaced, written with the page.
+    globalUpdates,
     title: page.title,
     description: page.description,
     removed: page.removed,
@@ -669,10 +753,65 @@ function withoutKeys(lines, keys) {
   return out;
 }
 
-/** Claude's frontmatter (with "stylesheet", "fonts" and "hideCta" set) followed by the copied body. */
+/** Frontmatter lines with only the given top-level keys (and their list items). */
+function onlyKeys(lines, keys) {
+  const present = lines.map((line) => /^([A-Za-z0-9_.-]+)\s*:/.exec(line)?.[1]).filter(Boolean);
+  return withoutKeys(lines, present.filter((key) => !keys.includes(key)));
+}
+
+/**
+ * The page a conversion starts from: its frontmatter cut down to REPLACE_KEEPS
+ * and no body, so the old page's content can't carry over into the new one.
+ * The old description goes too, and the old title when the HTML has its own (`html`:
+ * the raw page), so Claude can't keep them out of habit.
+ * Returns { base, dropped } (the content fields that were removed).
+ */
+function replacedPage(original, html = '') {
+  const match = FRONTMATTER_BLOCK.exec(original);
+  const lines = (match ? match[1] : '').split(/\r?\n/);
+  const { title, description } = htmlFacts(html);
+  // The old description always goes: it described the old page.
+  const keeps = REPLACE_KEEPS.filter((key) => !(key === 'title' && title) && key !== 'description');
+  const kept = onlyKeys(lines, keeps);
+  // A meta description that fits is the page's description as it is, so it's set here rather than left to Claude.
+  if (description && description.length <= 160) kept.push(`description: ${frontmatterScalar(description)}`);
+  const dropped = [...new Set(lines.map((line) => /^([A-Za-z0-9_.-]+)\s*:/.exec(line)?.[1]).filter((key) => key && !REPLACE_KEEPS.includes(key)))];
+  return { base: `---\n${kept.join('\n')}\n---\n`, dropped };
+}
+
+/** A one-line value the site's frontmatter parser reads back as the same string. */
+function frontmatterScalar(value) {
+  const text = value.replace(/\s+/g, ' ').trim();
+  const plain = !/^["'[{|>#&*!%@`-]|^(true|false)$|^-?\d+(\.\d+)?$|["']$|\s#/i.test(text);
+  return plain ? text : `"${text}"`;
+}
+
+/** Whether the HTML names its page (a <title> or <h1>), and its meta description. */
+function htmlFacts(html) {
+  const { title, description } = cleanHtml(html || '<p></p>');
+  return { title: Boolean(title) || /<h1\b/i.test(html), description: description.trim() };
+}
+
+/**
+ * Problems with the title and description of a page that replaced another:
+ * no title, or a description that isn't the HTML's meta description when that
+ * one fits (at most 160 characters).
+ */
+function replacementProblems(updated, html) {
+  const { data } = parseFrontmatter(updated);
+  const problems = [];
+  if (!String(data.title ?? '').trim()) problems.push('the page has no title: take it from the HTML');
+  const { description } = htmlFacts(html);
+  if (description && description.length <= 160 && comparable(String(data.description ?? '')) !== comparable(description)) {
+    problems.push(`description must be the HTML's meta description, word for word: "${description}"`);
+  }
+  return problems;
+}
+
+/** Claude's frontmatter, limited to what a replaced page keeps, with "stylesheet", "fonts" and "hideCta" set, then the copied body. */
 function assembleStyledFile(reply, styled) {
   const match = FRONTMATTER_BLOCK.exec(reply.trim());
-  const lines = withoutKeys((match ? match[1] : '').split(/\r?\n/), ['stylesheet', 'fonts']);
+  const lines = onlyKeys((match ? match[1] : '').split(/\r?\n/), REPLACE_KEEPS);
   lines.push(`stylesheet: /${styled.stylesheet.file}`);
   if (styled.fonts.length) lines.push('fonts:', ...styled.fonts.map((url) => `  - "${url.replace(/"/g, '%22')}"`));
   // The imported page brings its own call to action; the site's would be added after it.
@@ -734,26 +873,23 @@ async function testStyledPage(styled, raw) {
 
 /**
  * The original page as the test compares it: minus its header, footer,
- * navigation and scripts, with images resolved and uploaded stylesheets
- * standing in for its <link>s exactly as in the copy, and a viewport tag (a
+ * navigation and scripts, with images resolved and uploaded and global
+ * stylesheets standing in for its <link>s exactly as in the copy, and a viewport tag (a
  * page without one shows zoomed out on phones; the site always has one).
  */
 function originalTestDocument(styled) {
   const source = styled.html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, '').replace(/<!--[\s\S]*?-->/g, '');
-  const used = new Set();
+  const links = standIns(styled.uploads, styled.globals);
   const styleTag = (css, media) => `<style${media ? ` media="${media.replace(/"/g, '')}"` : ''}>${css}</style>`;
   let head = /<head\b[^>]*>[\s\S]*?<\/head\s*>/i.exec(source)?.[0] ?? '<head><meta charset="utf-8"></head>';
   head = head.replace(/<link\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi, (tag) => {
     if (!/\brel\s*=\s*["']?[^"'>]*stylesheet/i.test(tag)) return tag;
     const href = /\bhref\s*=\s*["']?([^"'\s>]+)/i.exec(tag)?.[1] || '';
     if (FONT_STYLESHEET.test(href)) return tag;
-    const base = path.posix.basename(href.split(/[?#]/)[0]).toLowerCase();
-    const i = styled.uploads.findIndex((u, n) => !used.has(n) && path.posix.basename(u.file).toLowerCase() === base);
-    if (i < 0) return '';
-    used.add(i);
-    return styleTag(styled.uploads[i].css, /\bmedia\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]);
+    const match = links.forLink(href);
+    return match ? styleTag(match.css, /\bmedia\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]) : '';
   });
-  const unmatched = styled.uploads.filter((_, n) => !used.has(n)).map((u) => styleTag(u.css)).join('');
+  const unmatched = links.rest().map((s) => styleTag(s.css)).join('');
   head = head.replace(/<head\b[^>]*>/i, (open) => `${open}${/name\s*=\s*["']?viewport/i.test(head) ? '' : '<meta name="viewport" content="width=device-width, initial-scale=1">'}${unmatched}`);
   const htmlTag = /<html\b[^>]*>/i.exec(source)?.[0] ?? '<html>';
   const bodyTag = /<body\b[^>]*>/i.exec(source)?.[0] ?? '<body>';
@@ -807,7 +943,7 @@ function loadHtmlPage(source) {
     if (usable) entries.push({ value: relative, src });
     else unavailable.push(src);
   }
-  return { file, ...cleaned, entries, unavailable };
+  return { file, ...cleaned, entries, unavailable, source: html };
 }
 
 /* ----------------------------------------------------------------- images */
@@ -1038,6 +1174,7 @@ function generateChecks(original, updated, images) {
 
 function convertChecks(original, updated, images, page) {
   const { problems, warnings } = pageChecks(original, updated);
+  problems.push(...replacementProblems(updated, page.source));
 
   // Decorative images may rightly be left out, so a missing one only warns.
   for (const image of images) {
@@ -1111,8 +1248,27 @@ function styledSummary(relFile, instruction, original, raw, styled) {
     `its CSS (${styled.rules} rules) was saved, scoped to this page, as ${styled.stylesheet.file}`,
     styled.fonts.length ? `its web fonts are loaded from ${styled.fonts.length} font stylesheet${styled.fonts.length === 1 ? '' : 's'}` : '',
     styled.reveal ? 'its scroll-in effect was kept' : '',
+    styled.globals.length ? `the site tree's global stylesheets were applied to it (${styled.globals.map((g) => g.file).join(', ')})` : '',
+    styled.globalUpdates.length ? `its upload replaced the global stylesheet ${styled.globalUpdates.map((g) => g.file).join(', ')}` : '',
+    "the old page's body and content fields were replaced, keeping only the fields that identify the page",
   ].filter(Boolean).join('; ');
   return summaryFor({ mode: 'convert', relFile, instruction: styledLogInstruction(instruction, styled), before: frontmatter(original), after: frontmatter(raw), notes: facts });
+}
+
+/**
+ * The content file in a reply. Asked to review its work, Claude sometimes
+ * writes its checklist first ("Comparing line by line: … Returning the file
+ * unchanged.") or wraps the file in a fence after a sentence. The file is
+ * taken from the first "---" line that opens a valid frontmatter block.
+ */
+function fileFromReply(text) {
+  const raw = stripFence(text.trim());
+  if (FRONTMATTER_BLOCK.test(raw)) return raw;
+  for (const m of raw.matchAll(/^---[ \t]*\r?$/gm)) {
+    const rest = raw.slice(m.index);
+    if (FRONTMATTER_BLOCK.test(rest)) return rest.replace(/\n```[ \t]*$/, '').trimEnd();
+  }
+  return raw;
 }
 
 // How many times a conversion asks Claude: the first reply plus up to two corrections.
@@ -1159,7 +1315,7 @@ async function reviewConversion({ reply, buildPrompts, original, htmlPage }) {
   let best = null;
   let current = reply;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const raw = stripFence(current.text);
+    const raw = fileFromReply(current.text);
     const checked = convertChecks(original, raw, reply.images, htmlPage);
     const problems = [...checked.problems];
     if (current.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the file is incomplete`);
@@ -1167,6 +1323,7 @@ async function reviewConversion({ reply, buildPrompts, original, htmlPage }) {
     const result = { raw, problems, warnings: [...checked.warnings], missing, attempt };
     checks.push(`attempt ${attempt}: ${problems.length ? `${problems.length} problem${problems.length === 1 ? '' : 's'}` : 'no problems'}, ${missing.length ? `${missing.length} piece${missing.length === 1 ? '' : 's'} of content missing` : 'all content present'}`);
     console.log(`  Check ${checks.at(-1)}`);
+    for (const problem of problems.slice(0, 5)) console.log(`    - ${problem}`);
     const score = (r) => r.problems.length * 1000 + r.missing.length;
     if (!best || score(result) <= score(best)) best = result;
     const clean = !problems.length && !missing.length;
@@ -1181,8 +1338,8 @@ async function reviewConversion({ reply, buildPrompts, original, htmlPage }) {
     messages.push({ role: 'assistant', content: current.text }, {
       role: 'user',
       content: issues.length
-        ? `Checking your conversion against the HTML found these issues:\n${issues.join('\n')}\nFix them: add missing content where it belongs in the page, with its original wording, unless it's part of the old site's header, footer or navigation. Then check the whole file against the HTML once more and return the complete corrected file, following the same rules.`
-        : 'Review your conversion against the HTML once more, line by line: every heading, paragraph, list item, table cell, link and image of the page\'s own content must be there, in order, with the original wording, and nothing from the old site\'s header, footer or navigation. Return the complete file, corrected if anything was wrong or unchanged if not, following the same rules.',
+        ? `Checking your conversion against the HTML found these issues:\n${issues.join('\n')}\nFix them: add missing content where it belongs in the page, with its original wording, unless it's part of the old site's header, footer or navigation. Then check the whole file against the HTML once more and return the complete corrected file, following the same rules. Reply with the file only, starting with its opening "---": no commentary before or after it.`
+        : 'Review your conversion against the HTML once more, line by line: every heading, paragraph, list item, table cell, link and image of the page\'s own content must be there, in order, with the original wording, and nothing from the old site\'s header, footer or navigation. Return the complete file, corrected if anything was wrong or unchanged if not, following the same rules. Reply with the file only, starting with its opening "---": no checklist, commentary or notes before or after it.',
     });
     console.log(`  Asking Claude to ${issues.length ? 'fix what the check found' : 'review its conversion'} (attempt ${attempt + 1} of ${MAX_ATTEMPTS})…`);
     current = await requestClaude({ apiKey, model: site.automation.model, systemPrompt, messages, maxTokens: MAX_TOKENS });
@@ -1216,7 +1373,13 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   if (styled.removed.length) console.log(`  Removed: ${styled.removed.join(', ')}`);
   if (styled.reveal) console.log(`  Scroll reveal: kept (.${styled.reveal.target} shown with .${styled.reveal.state} as it scrolls into view)`);
 
-  const { systemPrompt, userPrompt } = buildStyledFrontmatterPrompts(relFile, instruction, original, styled, textPage);
+  if (styled.globals.length) console.log(`  Global CSS: ${styled.globals.map((g) => g.file).join(', ')} (from the site tree)`);
+  for (const update of styled.globalUpdates) console.log(`  Global CSS: ${update.file} replaced by the upload`);
+  // The HTML replaces the page: only the fields that identify it are kept.
+  const { base, dropped } = replacedPage(original, styled.html);
+  console.log(`  Replacing: the old body${dropped.length ? ` and ${dropped.join(', ')}` : ''}`);
+
+  const { systemPrompt, userPrompt } = buildStyledFrontmatterPrompts(relFile, instruction, base, styled, textPage);
   if (!apiKey) {
     console.log(`----- system prompt -----\n${systemPrompt}\n\n----- user prompt -----\n${userPrompt}\n`);
     console.log(`----- body that would be written -----\n${styled.body}\n----- ${styled.stylesheet.file} -----\n${styled.stylesheet.content}`);
@@ -1237,9 +1400,10 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
       console.error('  Claude declined this request. Rephrase the direction and try again.\n');
       return false;
     }
-    const text = stripFence(reply.text);
+    const text = fileFromReply(reply.text);
     raw = assembleStyledFile(text, styled);
-    ({ problems, warnings } = pageChecks(original, raw));
+    ({ problems, warnings } = pageChecks(base, raw));
+    problems.push(...replacementProblems(raw, styled.html));
     if (!FRONTMATTER_BLOCK.test(text.trim())) problems.unshift("Claude's reply had no frontmatter block");
     if (reply.stopReason === 'max_tokens') problems.unshift("Claude's reply was cut off, so the frontmatter is incomplete");
     checks.push(`frontmatter, attempt ${attempt}: ${problems.length ? `${problems.length} problem${problems.length === 1 ? '' : 's'}` : 'passed'}`);
@@ -1247,10 +1411,11 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
     if (!problems.length || attempt === MAX_ATTEMPTS) break;
     messages.push({ role: 'assistant', content: reply.text }, {
       role: 'user',
-      content: `That frontmatter has these problems:\n${problems.map((p) => `- ${p}`).join('\n')}\nReturn the corrected frontmatter block only, following the same rules.`,
+      content: `That frontmatter has these problems:\n${problems.map((p) => `- ${p}`).join('\n')}\nReturn the corrected frontmatter block only, following the same rules, with no commentary before or after it.`,
     });
   }
   warnings.push(...styled.warnings);
+  if (dropped.length) warnings.push(`replaced the old page's content: its body and ${dropped.join(', ')}`);
 
   // Then the page itself is tested: content first, then side by side with the original at three widths.
   console.log('  Testing the copy against the original…');
@@ -1259,12 +1424,12 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   problems.push(...tested.problems);
   warnings.push(...tested.warnings);
   for (const line of tested.checks) console.log(`  ${line}`);
-  const files = [styled.stylesheet];
+  const files = [styled.stylesheet, ...styled.globalUpdates];
 
   if (dryRun) {
     console.log(`----- proposed ${relFile} (not written) -----\n`);
     console.log(raw);
-    console.log(`----- proposed ${styled.stylesheet.file} (not written, ${styled.stylesheet.content.length} characters) -----`);
+    for (const extra of files) console.log(`----- proposed ${extra.file} (not written, ${extra.content.length} characters) -----`);
     if (problems.length) console.log(`\n  problem: ${problems.join('\n  problem: ')}`);
     if (warnings.length) console.log(`\n  warning: ${warnings.join('\n  warning: ')}`);
     if (proposalOut) writeProposal({ relFile, mode: 'convert', instruction, images: [], raw, problems, warnings, source: styled.file, files, checks, summary: await styledSummary(relFile, instruction, original, raw, styled) });
@@ -1276,8 +1441,10 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
     return false;
   }
 
-  fs.mkdirSync(path.dirname(path.join(ROOT, styled.stylesheet.file)), { recursive: true });
-  fs.writeFileSync(path.join(ROOT, styled.stylesheet.file), styled.stylesheet.content);
+  for (const extra of files) {
+    fs.mkdirSync(path.dirname(path.join(ROOT, extra.file)), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, extra.file), extra.content);
+  }
   fs.writeFileSync(path.join(ROOT, relFile), raw);
   recordWork({
     command: 'page:convert',
@@ -1286,7 +1453,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
     summary: await styledSummary(relFile, instruction, original, raw, styled),
   });
   for (const warning of warnings) console.log(`  warning: ${warning}`);
-  console.log(`\n  Wrote ${relFile} and ${styled.stylesheet.file}\n`);
+  console.log(`\n  Wrote ${relFile}, ${files.map((extra) => extra.file).join(', ')}\n`);
   return true;
 }
 
@@ -1329,6 +1496,11 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
       console.error(`  Can't convert: ${error.message}.\n`);
       return false;
     }
+  }
+  // A conversion replaces the page: Claude starts from the fields that identify it, never its old content.
+  const { base, dropped } = convert ? replacedPage(original, htmlPage.source) : { base: original, dropped: [] };
+  if (convert) {
+    console.log(`  Replacing: the old body${dropped.length ? ` and ${dropped.join(', ')}` : ''}`);
     console.log(`  Content: ${htmlPage.text.length} characters of text${htmlPage.removed.length ? `, removed ${htmlPage.removed.join(', ')}` : ''}`);
     for (const src of htmlPage.unavailable) console.log(`  ! image "${src}" — not in this site, Claude will leave it out`);
   }
@@ -1350,12 +1522,12 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     console.log(`  Image ${i + 1}: ${image.ref}${image.block ? '' : ` (reference only: ${image.why || 'not readable'})`}`);
   }
 
-  const layout = generate || convert ? layoutFor(relFile, parseFrontmatter(original).data) : null;
+  const layout = generate || convert ? layoutFor(relFile, parseFrontmatter(base).data) : null;
   const buildPrompts = (list) =>
     generate
       ? buildGeneratePrompts(relFile, instruction, original, list, layout)
       : convert
-        ? buildConvertPrompts(relFile, instruction, original, list, layout, htmlPage)
+        ? buildConvertPrompts(relFile, instruction, base, list, layout, htmlPage)
         : buildEditPrompts(relFile, instruction, original, list);
   const { systemPrompt, userPrompt, isContent } = buildPrompts(images);
 
@@ -1371,12 +1543,14 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     console.error(`  Claude declined this request. Rephrase the ${{ edit: 'instruction', generate: 'draft', convert: 'direction' }[mode]} and try again.\n`);
     return false;
   }
-  let raw = stripFence(reply.text);
+  // Content files are taken from their frontmatter on; a template or other file is the whole reply.
+  let raw = generate || convert ? fileFromReply(reply.text) : stripFence(reply.text);
   let checks = [];
   let problems;
   let warnings;
   if (convert) {
-    ({ raw, problems, warnings, checks } = await reviewConversion({ reply, buildPrompts, original, htmlPage }));
+    ({ raw, problems, warnings, checks } = await reviewConversion({ reply, buildPrompts, original: base, htmlPage }));
+    if (dropped.length) warnings.push(`replaced the old page's content: its body and ${dropped.join(', ')}`);
   } else {
     const checked = generate ? generateChecks(original, raw, reply.images) : editChecks(original, raw, isContent);
     problems = [...checked.problems];

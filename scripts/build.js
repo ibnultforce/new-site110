@@ -96,7 +96,11 @@ function build() {
   );
 
   for (const entry of all) {
-    const layoutName = `layout:${entry.layout}`;
+    // A page converted with its own styles (edit-page.js --keep-styles) replaces the page
+    // completely: its HTML shows edge to edge, without its layout's hero, FAQ, call to action
+    // or related items, whatever layout it has.
+    const imported = typeof entry.stylesheet === 'string' && entry.stylesheet.startsWith('/assets/css/imported/');
+    const layoutName = imported ? 'layout:imported' : `layout:${entry.layout}`;
     if (!engine.templates[layoutName]) {
       throw new Error(`${entry.sourceFile}: layout "${entry.layout}" not found in templates/layouts/`);
     }
@@ -109,17 +113,19 @@ function build() {
       parentUrl: entry.parentUrl || parent?.url || null,
     };
 
-    // FAQ entries are filtered from the one shared file by topic.
+    // FAQ entries are filtered from the one shared file by topic. An imported page shows none.
     const allFaq = data.faq?.items || [];
     const topics = page.faqTopics || page.faqTopic;
     const ownFaq = Array.isArray(page.faq) ? page.faq : [];
-    const faqItems = ownFaq.length
-      ? ownFaq
-      : topics
-        ? allFaq.filter((item) => [].concat(topics).includes(item.topic))
-        : page.showFaq
-          ? allFaq
-          : [];
+    const faqItems = imported
+      ? []
+      : ownFaq.length
+        ? ownFaq
+        : topics
+          ? allFaq.filter((item) => [].concat(topics).includes(item.topic))
+          : page.showFaq
+            ? allFaq
+            : [];
 
     // Content bodies may use template syntax, so shared values stay in one place.
     const context = {
