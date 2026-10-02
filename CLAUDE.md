@@ -297,9 +297,9 @@ npm run page:edit -- about-us --from-html=old-site/about.html --keep-styles --cs
 
 The body is then copied by code, not by Claude. Header, footer and navigation
 are removed as above, and the rest keeps its elements, classes, ids, inline
-styles and SVG. Scripts, event handlers, `data-*` and `javascript:` links are
-dropped. Of the effects scripts drove, only scroll-reveal is brought back (see
-below). Each class is prefixed `imp-`, so the site's components and
+styles, SVG, `data-*`, event handlers, `javascript:` links, `<template>`,
+`<canvas>` and `<noscript>` (only `srcset`/`sizes` and integrity attributes go).
+Each class is prefixed `imp-`, so the site's components and
 Tailwind utilities (Tailwind scans `content/`) never match imported markup.
 The body is written as one raw HTML block inside `<div class="imported-page">`,
 with no blank lines (the markdown renderer ends a raw block at one) and with
@@ -378,10 +378,43 @@ script uses the usual forms, the wrapper also gets `data-reveal-margin` and
 `data-reveal-threshold` (from an IntersectionObserver) and
 `data-reveal-stagger` (from a `(i % n) * ms` transition delay).
 `assets/js/site.js` plays the effect back, and only it adds the root class, so
-without JavaScript nothing is ever hidden. The page's script itself is never
-copied: it usually depends on the removed header (the nav it docks, say) and
-would fail with the content still hidden. The result goes to
+without JavaScript nothing is ever hidden; when the page's own script is kept
+it does the same, harmlessly. The result goes to
 `assets/css/imported/<page>.css` (refused over 600 KB).
+
+**The page's scripts are kept** (`keptScripts` in `edit-page.js`, from
+`scriptsIn` in `html-source.js`), in document order and place: ones in
+`<head>` stay in `<head>`, the rest go at the end of the body, before
+`DOMContentLoaded` as they ran. Inline scripts are saved as
+`assets/js/imported/<page>/inline-<n>.js`; ones from a URL load from it; ones
+from the old site's own files come from `--js=<file.js>` uploads (matched by
+file name like `--css`, saved to the same folder) or the repo, and a missing one
+is a warning. JSON-LD and non-JavaScript script types are left out. The page's
+frontmatter lists them as `scripts:` (`src`, `head`, `module`, `nomodule`,
+`defer`, `async`, all always written, because template lookup walks the
+context stack), and `base.html` loads `assets/js/imported-page.js` before them
+with `scriptHtmlClass`, `scriptBodyClass` and `scriptRemoved`. That runtime
+makes the copy look like the original to its scripts:
+- each element gets its original class names back next to the `imp-` ones, and
+  a class a script adds or removes later (or an element it inserts, or a
+  `<template>` it clones) is mirrored to its `imp-` twin by a MutationObserver;
+- the old `<html>`/`<body>` classes go on the site's `<html>`/`<body>`, and what
+  scripts change there is mirrored onto the wrapper (where the CSS has them);
+- `getElementById`/`querySelector` for an id or class that left with the old
+  header, footer or navigation return a detached stand-in rather than null, so
+  a script that set up the old menu first doesn't stop with an error.
+
+With scripts kept, `scopeCss` gets `scripted`: rules for classes and ids that
+aren't in the markup stay (a script may add `is-open` or a library
+`aos-animate` later), bar the removed parts' (`dropClasses`/`dropIds`). A
+leading class that's on no element (`.js .reveal`) is matched both on the
+wrapper and on an element inside. **Pass 5** (`scriptCheck` in
+`render-check.js`) loads the original and the copy with their scripts running,
+scrolls through each, and warns about errors (uncaught exceptions,
+`console.error`) the copy raises that the original doesn't. Known limit: a
+script that finds the old header by tag (`header`, `nav`) rather than id or
+class gets nothing, or the site's own header. `site.js` skips imported pages'
+elements (an imported `group` class isn't the site menu).
 
 Claude writes only the frontmatter, from a text version of the page. It's
 checked after each reply, and Claude gets up to `MAX_ATTEMPTS` (3) tries to

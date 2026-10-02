@@ -15,7 +15,9 @@
  * the rest keeps its structure and attributes (classes, ids, inline styles,
  * SVG) so it can be shown as-is with the old page's CSS, and every class gets
  * a prefix so the site's own classes and Tailwind utilities never match it.
- * stylesheetsIn() lists the page's <style> blocks and linked stylesheets in
+ * The page's scripts are kept too: the attributes they use (data-*, event
+ * handlers, javascript: links) stay in the markup, and scriptsIn() lists the
+ * scripts themselves in document order. stylesheetsIn() lists the page's <style> blocks and linked stylesheets in
  * cascade order, for scripts/lib/css-scope.js.
  */
 
@@ -28,11 +30,13 @@ export const MAX_HTML_BYTES = 2 * 1024 * 1024;
 export const MAX_CLEAN_CHARS = 150000;
 
 const KEEP_ATTRIBUTES = new Set(['href', 'src', 'alt', 'title', 'colspan', 'rowspan']);
-// With keepStyles every other attribute stays (SVG needs its own), except these.
-const DROP_STYLED_ATTRIBUTE = /^(on\w+|data-[\w-]*|srcset|sizes|nonce|integrity|crossorigin|is|slot|contenteditable|jsaction|jsname|jscontroller)$/i;
+// With keepStyles every other attribute stays (SVG needs its own, the page's scripts their data-*
+// and event handlers), except these.
+const DROP_STYLED_ATTRIBUTE = /^(srcset|sizes|nonce|integrity|crossorigin|is|slot|contenteditable)$/i;
 // Removed with everything inside them, wherever they are.
 const DROP_ELEMENTS = ['script', 'style', 'noscript', 'template', 'svg', 'canvas', 'object', 'head'];
-const DROP_STYLED_ELEMENTS = ['script', 'style', 'noscript', 'template', 'canvas', 'object', 'head'];
+// Scripts leave the markup but are kept (scriptsIn); <template>, <canvas> and <noscript> stay for them.
+const DROP_STYLED_ELEMENTS = ['script', 'style', 'head'];
 // class/id tokens that mark site chrome outside the content.
 const CHROME_TOKEN = /^(?:(?:site|page|global|main|top|primary)[-_])?(header|footer|masthead|navbar|topbar|top-bar|sidebar|cookie[-_]?(?:banner|notice|consent)?)$/i;
 // A start tag, with attribute values that may contain ">".
@@ -62,6 +66,12 @@ export function readHtmlSource(relPath) {
 export function readCssSource(relPath) {
   const { file, text } = readSource(relPath, /\.css$/i, 'CSS');
   return { file, css: text };
+}
+
+/** Reads a script inside the repository. Throws a readable error otherwise. */
+export function readJsSource(relPath) {
+  const { file, text } = readSource(relPath, /\.m?js$/i, 'JavaScript');
+  return { file, code: text };
 }
 
 /** Text with the tags taken out and whitespace collapsed, for measuring how much content there is. */
@@ -202,8 +212,8 @@ function simplifyTags(html, removed) {
 }
 
 /**
- * keepStyles: every element and attribute stays (minus event handlers, data-*
- * and javascript: links), and each class gets `prefix`. Returns the HTML and
+ * keepStyles: every element and attribute stays (minus responsive-image and
+ * integrity attributes), and each class gets `prefix`. Returns the HTML and
  * the class names and ids it uses, unprefixed, for scoping the CSS.
  */
 function styledTags(html, prefix) {
@@ -215,7 +225,6 @@ function styledTags(html, prefix) {
       const [, attr, raw] = m;
       if (DROP_STYLED_ATTRIBUTE.test(attr)) continue;
       const value = raw === undefined ? null : raw.replace(/^["']|["']$/g, '');
-      if (/^(href|src|action|formaction|xlink:href)$/i.test(attr) && value !== null && /^\s*javascript:/i.test(value)) continue;
       if (/^class$/i.test(attr) && value !== null) {
         const names = value.split(/\s+/).filter(Boolean);
         for (const n of names) classes.add(n);
@@ -259,6 +268,8 @@ export function cleanHtml(source, { keepStyles = false, prefix = '' } = {}) {
   html = innerOf(html, /<(body)\b[^>]*>/i) ?? html;
   html = dropElements(html, keepStyles ? DROP_STYLED_ELEMENTS : DROP_ELEMENTS);
   html = html.replace(/<(link|meta|base)\b[^>]*>/gi, '');
+  // Every class and id of the whole page, before its header and footer go (see removedIds below).
+  const whole = keepStyles ? styledTags(html, '') : null;
 
   // When <main> holds most of the page, everything around it is the site, not the page.
   const main = innerOf(html, MAIN_TAG) ?? innerOf(html, MAIN_ROLE);
@@ -276,9 +287,13 @@ export function cleanHtml(source, { keepStyles = false, prefix = '' } = {}) {
     // What the old <html> and <body> carried: their rules ("body.home .x") now describe the wrapper.
     const rootClasses = new Set();
     const rootIds = new Set();
-    for (const m of source.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<(?:html|body)\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
-      for (const c of (attribute(m[1], 'class') || '').split(/\s+/).filter(Boolean)) rootClasses.add(c);
-      const id = attribute(m[1], 'id');
+    const tagClasses = { html: [], body: [] };
+    for (const m of source.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<(html|body)\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
+      for (const c of (attribute(m[2], 'class') || '').split(/\s+/).filter(Boolean)) {
+        rootClasses.add(c);
+        tagClasses[m[1].toLowerCase()].push(c);
+      }
+      const id = attribute(m[2], 'id');
       if (id) rootIds.add(id);
     }
     return {
@@ -290,6 +305,13 @@ export function cleanHtml(source, { keepStyles = false, prefix = '' } = {}) {
       ids: styled.ids,
       rootClasses,
       rootIds,
+      // The old <html> and <body> classes, apart: the page's scripts may look for them there.
+      htmlClasses: [...new Set(tagClasses.html)],
+      bodyClasses: [...new Set(tagClasses.body)],
+      // Ids and classes that left with the header, footer and navigation, which a kept script may
+      // still look up (assets/js/imported-page.js gives it a stand-in rather than null).
+      removedIds: [...whole.ids].filter((id) => !styled.ids.has(id)),
+      removedClasses: [...whole.classes].filter((c) => !styled.classes.has(c)),
       removed: removedList(removed),
     };
   }
@@ -303,6 +325,37 @@ export function cleanHtml(source, { keepStyles = false, prefix = '' } = {}) {
     .trim();
 
   return { title, description, html, text: visibleText(html), removed: removedList(removed) };
+}
+
+const SCRIPT_TYPE = /^(|text\/javascript|application\/javascript|text\/ecmascript|application\/ecmascript|module)$/i;
+
+/**
+ * The page's scripts in document order: [{ head, src, code, module, defer,
+ * async, nomodule }], `head` when the script sits in <head>. JSON-LD (the site
+ * writes its own), templates and other non-JavaScript types are left out.
+ */
+export function scriptsIn(source) {
+  const html = source.replace(/<!--[\s\S]*?-->/g, '');
+  const bodyAt = /<\/head\s*>|<body\b/i.exec(html)?.index ?? -1;
+  const scripts = [];
+  for (const m of html.matchAll(/<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/script\s*>/gi)) {
+    const attrs = m[1];
+    const type = (attribute(attrs, 'type') || '').trim();
+    if (!SCRIPT_TYPE.test(type)) continue;
+    const has = (name) => attribute(attrs, name) !== null || new RegExp(`(^|\\s)${name}(?=\\s|/|$)`, 'i').test(attrs);
+    const src = (attribute(attrs, 'src') || '').trim();
+    if (!src && !m[2].trim()) continue;
+    scripts.push({
+      head: bodyAt >= 0 && m.index < bodyAt,
+      src: src || null,
+      code: src ? null : m[2],
+      module: /^module$/i.test(type),
+      defer: has('defer'),
+      async: has('async'),
+      nomodule: has('nomodule'),
+    });
+  }
+  return scripts;
 }
 
 /** The <img> sources in cleaned HTML, in order, with their alt text. */

@@ -163,12 +163,16 @@ function prefixClassAttributes(selector, prefix) {
 
 /** The scoped selector, or null if it refers to a class or id that isn't in the page. */
 function scopeSelector(selector, options) {
-  const { scope, prefix, classes, ids, rootClasses, rootIds } = options;
-  const known = (name) => classes.has(name) || rootClasses.has(name);
+  const { scope, prefix, classes, ids, rootClasses, rootIds, scripted, dropClasses, dropIds } = options;
+  // Without scripts a class or id that isn't in the page never will be, so its rule goes. With
+  // scripts it may be added later (an "is-open", a library's "aos-animate"), so only the removed
+  // header's and footer's go.
+  const known = (name) => classes.has(name) || rootClasses.has(name) || (scripted && !dropClasses.has(name));
+  const knownId = (id) => ids.has(id) || rootIds.has(id) || (scripted && !dropIds.has(id));
   let missing = false;
   outsideStrings(withoutFunctionalArgs(selector), (part) => {
     for (const m of part.matchAll(/\.((?:\\.|[\w-])+)/g)) if (!known(unescape(m[1]))) missing = true;
-    for (const m of part.matchAll(/#((?:\\.|[\w-])+)/g)) if (!ids.has(unescape(m[1])) && !rootIds.has(unescape(m[1]))) missing = true;
+    for (const m of part.matchAll(/#((?:\\.|[\w-])+)/g)) if (!knownId(unescape(m[1]))) missing = true;
     return part;
   });
   if (missing) return null;
@@ -178,6 +182,15 @@ function scopeSelector(selector, options) {
   // Classes and ids the old <html> and <body> carried (and the class a reveal script adds there)
   // now belong to the scope: "body.home .x", ".js .x" and "#page .x" all start from the wrapper.
   const rootToken = /^(?:\.(?:\\.|[\w-])+|#(?:\\.|[\w-])+)+(?=[\s>+~]|$)/;
+  // A leading class that's on no element (".js .reveal", ".menu-open .nav") is one a script adds,
+  // usually to <html> or <body>, which are the wrapper now, but maybe to an element inside. Both
+  // are matched.
+  const leading = scripted && !ROOT_COMPOUND.test(rest) ? rootToken.exec(rest)?.[0] : null;
+  const state = leading && !leading.includes('#') ? [...leading.matchAll(/\.((?:\\.|[\w-])+)/g)].map((m) => unescape(m[1]).slice(prefix.length)) : [];
+  if (state.length && state.every((c) => !classes.has(c) && !rootClasses.has(c)) && rest.slice(leading.length).trim()) {
+    const asRoot = scopeSelector(selector, { ...options, rootClasses: new Set([...rootClasses, ...state]) });
+    return asRoot && { selector: `${asRoot.selector},\n${scope} ${rest}`, root: null };
+  }
   const isRootCompound = (compound) =>
     [...compound.matchAll(/([.#])((?:\\.|[\w-])+)/g)].every(([, kind, name]) =>
       kind === '.' ? rootClasses.has(unescape(name).slice(prefix.length)) : rootIds.has(unescape(name)));
@@ -420,9 +433,12 @@ function keyframeNames(sheets) {
  * with `prefix` and keeping only rules for `classes`/`ids` that exist.
  * `rootClasses`/`rootIds` are what the old <html> and <body> carried (they
  * now describe the wrapper); `reveal` (from detectReveal) keeps that effect's
- * script-added classes. Returns { css, warnings, rules, remFactor }.
+ * script-added classes. With `scripted` (the page's scripts are kept) rules
+ * for classes and ids that aren't in the page stay, since a script may add
+ * them, except `dropClasses`/`dropIds` (the removed header's and footer's).
+ * Returns { css, warnings, rules, remFactor }.
  */
-export function scopeCss(sheets, { scope, prefix, classes, ids, rootClasses = new Set(), rootIds = new Set(), reveal = null, hints = [] }) {
+export function scopeCss(sheets, { scope, prefix, classes, ids, rootClasses = new Set(), rootIds = new Set(), reveal = null, hints = [], scripted = false, dropClasses = [], dropIds = [] }) {
   const imports = [];
   const warnings = new Set();
   const out = [];
@@ -433,6 +449,7 @@ export function scopeCss(sheets, { scope, prefix, classes, ids, rootClasses = ne
   }
   const options = {
     scope, prefix, classes, ids, rootClasses: roots, rootIds,
+    scripted, dropClasses: new Set(dropClasses), dropIds: new Set(dropIds),
     remFactor: rootFontFactor(sheets), keyframes: keyframeNames(sheets), layers: [], htmlValues: htmlDeclarations(sheets),
   };
   let rules = 0;

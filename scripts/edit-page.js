@@ -92,7 +92,7 @@ import path from 'node:path';
 import { ROOT, readJson, loadSite } from './lib/content.js';
 import { parseFrontmatter, renderMarkdown } from './lib/markdown.js';
 import { TemplateEngine } from './lib/template.js';
-import { renderCheck } from './lib/render-check.js';
+import { renderCheck, scriptCheck } from './lib/render-check.js';
 import { bannedPhraseWarnings, requestClaude, resolveImages, stripFence } from './lib/claude-writer.js';
 import { knowledgePrompt, recordWork, summarizeChange } from './lib/knowledge.js';
 import {
@@ -104,7 +104,9 @@ import {
   htmlImages,
   readCssSource,
   readHtmlSource,
+  readJsSource,
   rewriteImages,
+  scriptsIn,
   stylesheetsIn,
   svgDefinitions,
   visibleText,
@@ -144,6 +146,8 @@ const fromHtml = flag('from-html');
 const markdownFlag = Boolean(flag('markdown'));
 const keepStylesFlag = !markdownFlag;
 const cssArgs = argv.filter((a) => a.startsWith('--css=')).map((a) => a.slice('--css='.length));
+// Scripts the page loads from its own files (<script src="js/main.js">), like --css for stylesheets.
+const jsArgs = argv.filter((a) => a.startsWith('--js=')).map((a) => a.slice('--js='.length));
 const noRenderCheck = Boolean(flag('no-render-check'));
 
 const site = readJson(path.join(ROOT, 'site.config.json'));
@@ -539,6 +543,62 @@ ${instruction ? `Extra direction from the author: ${instruction}` : 'Write the f
   return { systemPrompt, userPrompt };
 }
 
+/** Where a page's imported scripts live: assets/js/imported/<page>/. */
+function importedScriptDir(relFile) {
+  return importedStylesheet(relFile).replace(/^assets\/css\/imported\/(.*)\.css$/, 'assets/js/imported/$1');
+}
+
+/**
+ * The page's scripts, kept in their order and place (<head> or the end of the
+ * body): inline ones saved as files in assets/js/imported/<page>/, ones from a
+ * URL loaded from it, and ones from the old site's own files taken from the
+ * uploads (`jsFiles`, matched by file name) or the repo. Returns { entries
+ * (the "scripts" frontmatter), files, sources (what runs, for the script
+ * check), warnings }.
+ */
+function keptScripts(html, jsFiles, relFile) {
+  const dir = importedScriptDir(relFile);
+  const uploads = jsFiles.map((f) => readJsSource(f));
+  const used = new Set();
+  const entries = [];
+  const files = [];
+  const sources = [];
+  const warnings = [];
+  let inline = 0;
+  const keep = (script, src, code) => {
+    entries.push({ src, head: script.head, module: script.module, nomodule: script.nomodule, defer: script.defer, async: script.async });
+    sources.push({ ...script, src: code === null ? src : null, code });
+  };
+  for (const script of scriptsIn(html)) {
+    if (script.code !== null) {
+      const file = `${dir}/inline-${++inline}.js`;
+      files.push({ file, content: script.code.replace(/^\s*\n/, '') });
+      keep(script, `/${file}`, script.code);
+      if (/\bdocument\.write(ln)?\s*\(/.test(script.code)) warnings.push(`inline script ${inline} uses document.write, which may not work as it did`);
+      continue;
+    }
+    const src = script.src.startsWith('//') ? `https:${script.src}` : script.src;
+    if (/^https?:/i.test(src)) {
+      keep(script, src, null);
+      continue;
+    }
+    const base = path.posix.basename(src.split(/[?#]/)[0]).toLowerCase();
+    const upload = uploads.find((u) => !used.has(u) && path.posix.basename(u.file).toLowerCase() === base);
+    if (upload) {
+      used.add(upload);
+      const file = `${dir}/${base.replace(/[^a-z0-9._-]+/g, '-')}`;
+      files.push({ file, content: upload.code });
+      keep(script, `/${file}`, upload.code);
+      continue;
+    }
+    const inRepo = siteImage(src);
+    if (inRepo) keep(script, inRepo, fs.readFileSync(path.join(ROOT, inRepo.slice(1)), 'utf8'));
+    else warnings.push(`the page loads ${script.src}, which wasn't uploaded, so it's left out. Upload it with the HTML to keep it`);
+  }
+  for (const u of uploads.filter((x) => !used.has(x))) warnings.push(`${path.posix.basename(u.file)} was uploaded, but the page doesn't load it`);
+  return { entries, files, sources, warnings };
+}
+
 /** Where a page's imported stylesheet lives: assets/css/imported/<page>.css. */
 function importedStylesheet(relFile) {
   const name = path.posix.basename(relFile, '.md').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'page';
@@ -628,12 +688,14 @@ function standIns(uploads, globals) {
  * <link href> takes that link's place in the cascade, and the rest come first.
  * The site tree's global stylesheets stand in for the links that point at them.
  */
-function buildStyledPage(source, cssFiles, relFile) {
+function buildStyledPage(source, cssFiles, relFile, jsFiles = []) {
   const { file, html } = readHtmlSource(source);
   const page = cleanHtml(html, { keepStyles: true, prefix: IMPORT_PREFIX });
-  if (!page.text && !/<(img|svg)\b/i.test(page.html)) throw new Error(`${file} has no content left once its header, footer and scripts are removed`);
+  if (!page.text && !/<(img|svg)\b/i.test(page.html)) throw new Error(`${file} has no content left once its header and footer are removed`);
 
   const warnings = [];
+  const scripts = keptScripts(html, jsFiles, relFile);
+  warnings.push(...scripts.warnings);
   const unavailable = [];
   let body = rewriteImages(page.html, (src) => {
     const resolved = siteImage(src);
@@ -686,6 +748,8 @@ function buildStyledPage(source, cssFiles, relFile) {
     scope: `.${IMPORT_SCOPE}`, prefix: IMPORT_PREFIX, classes: page.classes, ids: page.ids,
     rootClasses: page.rootClasses, rootIds: page.rootIds, reveal,
     hints: presentationalHints(body, `.${IMPORT_SCOPE}`, bodyAttributes(html)),
+    // Scripts may add classes later, so rules for classes not in the markup stay (bar the removed parts').
+    scripted: scripts.entries.length > 0, dropClasses: page.removedClasses, dropIds: page.removedIds,
   });
   // Icons drawn from a sprite outside the kept content (<use href="#i-arrow">) need it with them.
   const sprite = svgDefinitions(html, body, IMPORT_PREFIX);
@@ -715,6 +779,15 @@ function buildStyledPage(source, cssFiles, relFile) {
     stylesheet: { file: importedStylesheet(relFile), content: `/* Imported with ${path.posix.basename(file)} by scripts/edit-page.js --keep-styles. Scoped to .${IMPORT_SCOPE}; regenerate it by converting again. */\n${scoped.css}` },
     rules: scoped.rules,
     hoverClasses: hoverClassesIn(allSheets),
+    // The page's scripts, and what assets/js/imported-page.js needs to run them (see base.html).
+    scripts: scripts.entries,
+    scriptFiles: scripts.files,
+    scriptSources: scripts.sources,
+    scriptConfig: {
+      htmlClass: page.htmlClasses.join(' '),
+      bodyClass: page.bodyClasses.join(' '),
+      removed: [...page.removedIds.map((id) => `#${id}`), ...page.removedClasses.map((c) => `.${c}`)].join(' '),
+    },
     warnings,
   };
 }
@@ -825,6 +898,18 @@ function assembleStyledFile(reply, styled) {
   if (styled.fonts.length) lines.push('fonts:', ...styled.fonts.map((url) => `  - "${url.replace(/"/g, '%22')}"`));
   // The imported page brings its own call to action; the site's would be added after it.
   if (!lines.some((line) => /^hideCta\s*:/.test(line))) lines.push('hideCta: true');
+  // Its scripts, in order, which base.html loads with assets/js/imported-page.js before them.
+  if (styled.scripts.length) {
+    lines.push('scripts:');
+    for (const script of styled.scripts) {
+      lines.push(`  - src: "${script.src.replace(/"/g, '%22')}"`);
+      for (const key of ['head', 'module', 'nomodule', 'defer', 'async']) lines.push(`    ${key}: ${script[key] ? 'true' : 'false'}`);
+    }
+    const { htmlClass, bodyClass, removed } = styled.scriptConfig;
+    if (htmlClass) lines.push(`scriptHtmlClass: ${frontmatterScalar(htmlClass)}`);
+    if (bodyClass) lines.push(`scriptBodyClass: ${frontmatterScalar(bodyClass)}`);
+    if (removed) lines.push(`scriptRemoved: ${frontmatterScalar(removed)}`);
+  }
   return `---\n${lines.join('\n')}\n---\n\n${styled.body}`;
 }
 
@@ -877,7 +962,40 @@ async function testStyledPage(styled, raw) {
     for (const d of pass.differences.slice(0, 5)) warnings.push(`at ${pass.width}px, ${d}`);
     if (pass.differences.length > 5) warnings.push(`at ${pass.width}px, ${pass.differences.length - 5} more differences`);
   });
+
+  // Pass 5: the page's scripts run in the copy, and raise no error the original doesn't.
+  if (styled.scripts.length) {
+    const run = await scriptCheck({ originalDoc: styled.html, convertedDoc: scriptTestDocument(styled, rendered), root: ROOT });
+    if (!run.ran) {
+      checks.push(`pass 5, scripts: skipped, ${run.reason}`);
+    } else {
+      const before = new Set(run.original);
+      const added = run.converted.filter((e) => !before.has(e));
+      const count = `${styled.scripts.length} script${styled.scripts.length === 1 ? '' : 's'}`;
+      checks.push(added.length
+        ? `pass 5, scripts: ${count} ran with ${added.length} error${added.length === 1 ? '' : 's'} the original doesn't have`
+        : `pass 5, scripts: ${count} ran without errors${run.original.length ? ' the original doesn\'t also have' : ''}`);
+      for (const e of added.slice(0, 5)) warnings.push(`a script fails in the copy: ${e}`);
+      if (added.length > 5) warnings.push(`${added.length - 5} more script errors`);
+    }
+  }
   return { checks, problems, warnings };
+}
+
+/** The copy as the script check runs it: convertedTestDocument plus imported-page.js and the page's scripts, inline code inlined. */
+function scriptTestDocument(styled, renderedBody) {
+  const attr = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const tag = (s) => (s.code !== null
+    ? `<script${s.module ? ' type="module"' : ''}>${s.code.replace(/<\/script/gi, '<\\/script')}</script>`
+    : `<script src="${attr(s.src)}"${s.module ? ' type="module"' : ''}${s.nomodule ? ' nomodule' : ''}${s.defer ? ' defer' : ''}${s.async ? ' async' : ''}></script>`);
+  const { htmlClass, bodyClass, removed } = styled.scriptConfig;
+  const runtime = `<script src="/assets/js/imported-page.js" data-html-class="${attr(htmlClass)}" data-body-class="${attr(bodyClass)}" data-removed="${attr(removed)}"></script>`;
+  const head = styled.scriptSources.filter((s) => s.head).map(tag).join('\n');
+  const tail = styled.scriptSources.filter((s) => !s.head).map(tag).join('\n');
+  return convertedTestDocument(styled, renderedBody)
+    .replace('</head>', () => `${runtime}\n${head}\n</head>`)
+    .replace('<body>', () => '<body><script>TwinstackImported.body()</script>')
+    .replace('</main></body>', () => `</main><script>TwinstackImported.ready()</script>\n${tail}\n</body>`);
 }
 
 /**
@@ -1369,11 +1487,11 @@ const MODE_LABELS = {
 };
 
 /** --from-html --keep-styles: the old page's HTML and CSS copied as-is, and Claude writes the frontmatter. */
-async function applyStyledConvert(relFile, instruction, original, source, cssFiles) {
+async function applyStyledConvert(relFile, instruction, original, source, cssFiles, jsFiles = []) {
   let styled;
   let textPage;
   try {
-    styled = buildStyledPage(source, cssFiles, relFile);
+    styled = buildStyledPage(source, cssFiles, relFile, jsFiles);
     textPage = cleanHtml(readHtmlSource(source).html);
   } catch (error) {
     console.error(`  Can't convert: ${error.message}.\n`);
@@ -1381,6 +1499,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   }
   console.log(`  Styles: kept, ${styled.rules} CSS rule${styled.rules === 1 ? '' : 's'} into ${styled.stylesheet.file}${cssFiles.length ? ` (from the HTML and ${cssFiles.join(', ')})` : ' (from the HTML)'}`);
   if (styled.removed.length) console.log(`  Removed: ${styled.removed.join(', ')}`);
+  if (styled.scripts.length) console.log(`  Scripts: kept ${styled.scripts.length} (${styled.scripts.filter((x) => x.head).length} in <head>), into ${importedScriptDir(relFile)}/ and from their URLs`);
   if (styled.reveal) console.log(`  Scroll reveal: kept (.${styled.reveal.target} shown with .${styled.reveal.state} as it scrolls into view)`);
 
   if (styled.globals.length) console.log(`  Global CSS: ${styled.globals.map((g) => g.file).join(', ')} (from the site tree)`);
@@ -1434,7 +1553,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   problems.push(...tested.problems);
   warnings.push(...tested.warnings);
   for (const line of tested.checks) console.log(`  ${line}`);
-  const files = [styled.stylesheet, ...styled.globalUpdates];
+  const files = [styled.stylesheet, ...styled.scriptFiles, ...styled.globalUpdates];
 
   if (dryRun) {
     console.log(`----- proposed ${relFile} (not written) -----\n`);
@@ -1467,7 +1586,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   return true;
 }
 
-async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit', source = null, { keepStyles = false, css = [] } = {}) {
+async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit', source = null, { keepStyles = false, css = [], js = [] } = {}) {
   const generate = mode === 'generate';
   const convert = mode === 'convert';
   console.log(`  File: ${relFile}`);
@@ -1496,7 +1615,7 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     return false;
   }
 
-  if (convert && keepStyles) return applyStyledConvert(relFile, instruction, original, source, css);
+  if (convert && keepStyles) return applyStyledConvert(relFile, instruction, original, source, css, js);
 
   let htmlPage = null;
   if (convert) {
@@ -1656,7 +1775,7 @@ async function runAdHoc(pageArg, instruction, mode, source) {
     process.exit(1);
   }
 
-  const ok = await applyEdit(relFile, instruction, imageArgs, mode, source, { keepStyles: keepStylesFlag, css: cssArgs });
+  const ok = await applyEdit(relFile, instruction, imageArgs, mode, source, { keepStyles: keepStylesFlag, css: cssArgs, js: jsArgs });
   if (!dryRun) {
     console.log(ok ? `  Review with: git diff -- ${relFile}\n  Validate with: npm run check\n` : '');
     process.exit(ok ? 0 : 3);
@@ -1695,6 +1814,7 @@ async function runQueue() {
       ok = await applyEdit(relFile, job.instruction || '', Array.isArray(job.images) ? job.images : [], mode, job.source || null, {
         keepStyles: job.markdown !== true && job.keepStyles !== false,
         css: Array.isArray(job.css) ? job.css.map(String) : [],
+        js: Array.isArray(job.js) ? job.js.map(String) : [],
       });
     }
 
@@ -1729,7 +1849,8 @@ if (positional.length) {
   const usable =
     (mode === 'edit' ? Boolean(instruction) : mode === 'generate' ? fromHtml === undefined : typeof fromHtml === 'string') &&
     ((!markdownFlag && !flag('keep-styles') && !cssArgs.length) || mode === 'convert') &&
-    !(markdownFlag && cssArgs.length);
+    !(markdownFlag && (cssArgs.length || jsArgs.length)) &&
+    (mode === 'convert' || !jsArgs.length);
   if (!usable) {
     console.error(`
   Usage:

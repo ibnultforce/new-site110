@@ -26,16 +26,21 @@
 <link rel="stylesheet" href="/assets/css/main.css">
 {{# each page.fonts }}<link rel="stylesheet" href="{{ this }}">{{/ each }}
 {{# if page.stylesheet }}<link rel="stylesheet" href="{{ page.stylesheet }}">{{/ if }}
+{{# if page.scripts }}<script src="/assets/js/imported-page.js" data-html-class="{{ page.scriptHtmlClass }}" data-body-class="{{ page.scriptBodyClass }}" data-removed="{{ page.scriptRemoved }}"></script>
+{{# each page.scripts }}{{# if head }}<script src="{{ src }}"{{# if module }} type="module"{{/ if }}{{# if nomodule }} nomodule{{/ if }}{{# if defer }} defer{{/ if }}{{# if async }} async{{/ if }}></script>{{/ if }}{{/ each }}{{/ if }}
 
 <script type="application/ld+json">{{{ jsonLd }}}</script>
 </head>
 <body>
+{{# if page.scripts }}<script>window.TwinstackImported && TwinstackImported.body()</script>{{/ if }}
 <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-0 focus:top-0 focus:z-100 focus:bg-ink focus:px-4 focus:py-3 focus:text-white">Skip to content</a>
 {{> header }}
 <main id="main">
 {{{ main }}}
 </main>
 {{> footer }}
+{{# if page.scripts }}<script>window.TwinstackImported && TwinstackImported.ready()</script>
+{{# each page.scripts }}{{# unless head }}<script src="{{ src }}"{{# if module }} type="module"{{/ if }}{{# if nomodule }} nomodule{{/ if }}{{# if defer }} defer{{/ if }}{{# if async }} async{{/ if }}></script>{{/ unless }}{{/ each }}{{/ if }}
 <script src="/assets/js/site.js" defer></script>
 </body>
 </html>

@@ -9,7 +9,8 @@
  *              (header, footer, navigation, scripts), with all its own CSS;
  *   converted  the site's compiled stylesheet, the imported stylesheet and the
  *              copied body, inside <main> as the site renders it.
- * Neither runs scripts, so script-driven states (a scroll reveal) are compared
+ * scriptCheck() is separate: it runs both pages' scripts and reports errors.
+ * Here neither runs scripts, so script-driven states (a scroll reveal) are compared
  * in their finished, visible form. Each width is one pass: every element's box
  * and computed style, its ::before/::after, and the forced :hover state of
  * elements the CSS gives one.
@@ -97,7 +98,11 @@ async function launch(executable) {
   await send('Page.enable');
   await send('DOM.enable');
   await send('CSS.enable');
-  return { send, evaluate, once, close: () => { try { ws.close(); } catch {} close(); } };
+  const on = (fn) => {
+    listeners.push(fn);
+    return () => listeners.splice(listeners.indexOf(fn), 1);
+  };
+  return { send, evaluate, once, on, close: () => { try { ws.close(); } catch {} close(); } };
 }
 
 const PROPS = ['color', 'backgroundColor', 'backgroundImage', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing',
@@ -233,5 +238,66 @@ export async function renderCheck({ originalDoc, convertedDoc, hoverClasses = []
   } finally {
     client?.close();
     setTimeout(() => fs.rmSync(dir, { recursive: true, force: true }), 2000).unref();
+  }
+}
+
+/** An exception or console.error as one line, without where it happened (the two sides' files differ). */
+function errorLine(text) {
+  return String(text || 'unknown error').split('\n')[0].replace(/file:\/\/\S+/g, '').replace(/\s+/g, ' ').trim().slice(0, 200);
+}
+
+/** Loads one document with its scripts running and returns the errors they raise. */
+async function scriptErrors(client, url, settleMs) {
+  const errors = [];
+  const off = client.on((msg) => {
+    if (msg.method === 'Runtime.exceptionThrown') {
+      const d = msg.params.exceptionDetails;
+      errors.push(errorLine(d.exception?.description || d.exception?.value || d.text));
+    } else if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type === 'error') {
+      errors.push(errorLine(msg.params.args.map((a) => a.value ?? a.description ?? '').join(' ')));
+    }
+  });
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  const loaded = client.once('Page.loadEventFired');
+  await client.send('Page.navigate', { url });
+  await Promise.race([loaded, sleep(20000)]);
+  // Scrolled through once, so scroll-driven scripts (reveals, sticky headers, counters) run too.
+  await client.evaluate(`(async () => { for (let y = 0; y < document.documentElement.scrollHeight; y += 600) { scrollTo(0, y); await new Promise(r => setTimeout(r, 60)); } scrollTo(0, 0); return true; })()`).catch(() => {});
+  await sleep(settleMs);
+  off();
+  return [...new Set(errors)];
+}
+
+/**
+ * Runs the original page and the copy with their scripts, in headless Chrome,
+ * and lists the errors each one raises (uncaught exceptions and
+ * console.error), so a kept script that broke in the copy is reported.
+ * Returns { ran, reason?, original: [...], converted: [...] }.
+ */
+export async function scriptCheck({ originalDoc, convertedDoc, root, settleMs = 1500 }) {
+  if (typeof WebSocket === 'undefined') return { ran: false, reason: 'this Node has no built-in WebSocket (Node 22 or later has one)', original: [], converted: [] };
+  const chrome = findChrome();
+  if (!chrome) return { ran: false, reason: 'no Chrome or Chromium was found (install one, or set CHROME_PATH)', original: [], converted: [] };
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'twinstack-scripts-'));
+  const originalFile = path.join(dir, 'original.html');
+  const convertedFile = path.join(dir, 'converted.html');
+  fs.writeFileSync(originalFile, localUrls(originalDoc, root));
+  fs.writeFileSync(convertedFile, localUrls(convertedDoc, root));
+  let client;
+  const timer = new Promise((_, reject) => setTimeout(() => reject(new Error(`it took over ${TIMEOUT_MS / 1000} seconds`)), TIMEOUT_MS).unref());
+  try {
+    return await Promise.race([timer, (async () => {
+      client = await launch(chrome);
+      await client.send('Runtime.enable');
+      const original = await scriptErrors(client, pathToFileURL(originalFile).href, settleMs);
+      const converted = await scriptErrors(client, pathToFileURL(convertedFile).href, settleMs);
+      return { ran: true, original, converted };
+    })()]);
+  } catch (error) {
+    return { ran: false, reason: `the browser check failed: ${error.message}`, original: [], converted: [] };
+  } finally {
+    client?.close();
+    setTimeout(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} }, 2000).unref();
   }
 }

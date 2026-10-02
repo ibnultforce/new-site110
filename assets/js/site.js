@@ -26,6 +26,8 @@
 
   // Dropdowns open on hover and focus in CSS; this adds arrow-key entry.
   document.querySelectorAll('.group > a').forEach(function (link) {
+    // An imported page may use "group" too (its scripts get its class names back); it isn't the menu.
+    if (link.closest && link.closest('.imported-page')) return;
     var panel = link.parentElement.querySelector('ul');
     if (!panel) return;
     link.addEventListener('keydown', function (event) {
