@@ -1,5 +1,5 @@
 {
-  "_comment": "Edit once, applies to every page. type:'collection' menus rebuild themselves whenever content is added — you never list products or services by hand.",
+  "_comment": "Edit once, applies to every page. type:'collection' menus rebuild themselves whenever content is added — you never list products or services by hand. appearance sets the look: header theme light|dark|brand, layout right|center|left (where the menu sits), sticky; footer theme dark|light|brand, showTagline, showContact, copyright (shown after © and the year; empty shows the site name and \"All rights reserved.\").",
   "header": {
     "items": [
       {
@@ -115,5 +115,18 @@
       "label": "Sitemap",
       "url": "/sitemap.xml"
     }
-  ]
+  ],
+  "appearance": {
+    "header": {
+      "theme": "light",
+      "layout": "right",
+      "sticky": true
+    },
+    "footer": {
+      "theme": "dark",
+      "showTagline": true,
+      "showContact": true,
+      "copyright": ""
+    }
+  }
 }

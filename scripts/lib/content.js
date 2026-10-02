@@ -182,6 +182,47 @@ function buildNavigation(navConfig, collections, site) {
       links: withActive(expand(column.links || [])),
     })),
     legal: withActive(expand(navConfig.legal || [])),
+    appearance: navAppearance(navConfig.appearance, site.brand),
+  };
+}
+
+const HEADER_THEMES = ['light', 'dark', 'brand'];
+const HEADER_LAYOUTS = ['right', 'center', 'left'];
+const FOOTER_THEMES = ['dark', 'light', 'brand'];
+
+/**
+ * How the header and footer look, from navigation.json → appearance, with
+ * every value checked and defaulted (the template's own look when it's
+ * missing). The partials put `theme`, `tone` and `layout` in data attributes
+ * and style them with Tailwind variants, since templates can't compare
+ * values. `tone` is "dark" for any theme with light text on it, and `logo` is
+ * the logo for that background (the dark one when there is one), or "" to
+ * show the icon and name.
+ */
+function navAppearance(config, brand = {}) {
+  const header = config?.header || {};
+  const footer = config?.footer || {};
+  const headerTheme = HEADER_THEMES.includes(header.theme) ? header.theme : 'light';
+  const footerTheme = FOOTER_THEMES.includes(footer.theme) ? footer.theme : 'dark';
+  const logoOn = (tone) => (tone === 'dark' ? brand.logoDark || brand.logo : brand.logo) || '';
+  const headerTone = headerTheme === 'light' ? 'light' : 'dark';
+  const footerTone = footerTheme === 'light' ? 'light' : 'dark';
+  return {
+    header: {
+      theme: headerTheme,
+      tone: headerTone,
+      layout: HEADER_LAYOUTS.includes(header.layout) ? header.layout : 'right',
+      sticky: header.sticky !== false,
+      logo: logoOn(headerTone),
+    },
+    footer: {
+      theme: footerTheme,
+      tone: footerTone,
+      showTagline: footer.showTagline !== false,
+      showContact: footer.showContact !== false,
+      copyright: typeof footer.copyright === 'string' ? footer.copyright.trim() : '',
+      logo: logoOn(footerTone),
+    },
   };
 }
 
@@ -289,6 +330,7 @@ function pruneNavigation(nav, exists) {
       .map((column) => ({ ...column, links: prune(column.links, `footer "${column.title}"`) }))
       .filter((column) => column.links.length),
     legal: prune(nav.legal, 'footer legal links'),
+    appearance: nav.appearance,
     missing,
   };
 }

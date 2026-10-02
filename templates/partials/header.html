@@ -1,30 +1,39 @@
-<header class="sticky top-0 z-50 border-b border-line bg-white/95 backdrop-blur-sm">
+<header data-theme="{{ nav.appearance.header.theme }}" data-tone="{{ nav.appearance.header.tone }}" data-layout="{{ nav.appearance.header.layout }}"{{# unless nav.appearance.header.sticky }} data-sticky="false"{{/ unless }}
+        class="site-header group/header sticky top-0 z-50 border-b border-line bg-white/95 backdrop-blur-sm
+               data-[sticky=false]:relative data-[theme=brand]:border-brand-dark data-[theme=brand]:bg-brand
+               data-[theme=dark]:border-ink-2 data-[theme=dark]:bg-ink">
   <div class="wrap flex h-17 items-center gap-8">
-    <a href="/" class="inline-flex items-center gap-2 font-display text-xl font-bold tracking-tight text-ink no-underline">
-      {{# if site.brand.logo }}<img src="{{ site.brand.logo }}" alt="{{ site.brand.logoText }}" class="block h-9 w-auto max-w-55 object-contain">{{ else }}
+    <a href="/" class="inline-flex items-center gap-2 font-display text-xl font-bold tracking-tight text-ink no-underline group-data-[tone=dark]/header:text-white">
+      {{# if nav.appearance.header.logo }}<img src="{{ nav.appearance.header.logo }}" alt="{{ site.brand.logoText }}" class="block h-9 w-auto max-w-55 object-contain">{{ else }}
       <img src="{{ site.brand.logoMark }}" alt="" width="26" height="26" class="size-6.5">
       {{ site.brand.logoText }}{{/ if }}
     </a>
 
     <button type="button" data-nav-toggle aria-expanded="false" aria-controls="primary-nav" aria-label="Open menu"
-            class="ml-auto rounded border border-line-strong px-2.5 py-2 lg:hidden">
-      <span class="block h-0.5 w-4.5 bg-ink"></span>
-      <span class="mt-1 block h-0.5 w-4.5 bg-ink"></span>
-      <span class="mt-1 block h-0.5 w-4.5 bg-ink"></span>
+            class="ml-auto rounded border border-line-strong px-2.5 py-2 group-data-[tone=dark]/header:border-white/35 lg:hidden">
+      <span class="block h-0.5 w-4.5 bg-ink group-data-[tone=dark]/header:bg-white"></span>
+      <span class="mt-1 block h-0.5 w-4.5 bg-ink group-data-[tone=dark]/header:bg-white"></span>
+      <span class="mt-1 block h-0.5 w-4.5 bg-ink group-data-[tone=dark]/header:bg-white"></span>
     </button>
 
     <nav id="primary-nav" data-open="false" aria-label="Primary"
-         class="ml-auto max-lg:absolute max-lg:inset-x-0 max-lg:top-full max-lg:max-h-[calc(100vh-4.25rem)]
+         class="ml-auto lg:group-data-[layout=center]/header:flex-1 lg:group-data-[layout=left]/header:flex-1
+                max-lg:absolute max-lg:inset-x-0 max-lg:top-full max-lg:max-h-[calc(100vh-4.25rem)]
                 max-lg:overflow-y-auto max-lg:border-b max-lg:border-line max-lg:bg-white max-lg:px-5
-                max-lg:pb-8 max-lg:data-[open=false]:hidden">
+                max-lg:pb-8 max-lg:data-[open=false]:hidden
+                max-lg:group-data-[theme=brand]/header:border-brand-dark max-lg:group-data-[theme=brand]/header:bg-brand
+                max-lg:group-data-[theme=dark]/header:border-ink-2 max-lg:group-data-[theme=dark]/header:bg-ink">
       <ul class="flex items-center gap-1 max-lg:flex-col max-lg:items-stretch max-lg:gap-0">
         {{# each nav.header.items }}
-        <li class="group relative">
+        <li class="group relative lg:group-data-[layout=center]/header:first:ml-auto">
           {{# if url }}<a href="{{ url }}"{{{ ariaCurrent }}}{{ else }}<button type="button" aria-haspopup="true"{{/ if }}
              class="inline-flex items-center gap-1.5 rounded px-3 py-2.5 text-[0.95rem] font-medium
                     text-ink-2 no-underline hover:bg-mist hover:text-ink
                     aria-[current=page]:text-brand
-                    max-lg:block max-lg:rounded-none max-lg:border-b max-lg:border-line max-lg:px-0 max-lg:py-3 max-lg:text-[1.05rem]">
+                    group-data-[tone=dark]/header:text-onink group-data-[tone=dark]/header:hover:bg-white/10
+                    group-data-[tone=dark]/header:hover:text-white group-data-[tone=dark]/header:aria-[current=page]:text-white
+                    max-lg:block max-lg:rounded-none max-lg:border-b max-lg:border-line max-lg:px-0 max-lg:py-3 max-lg:text-[1.05rem]
+                    max-lg:group-data-[tone=dark]/header:border-white/15">
             {{ label }}
             {{# if hasChildren }}<svg viewBox="0 0 10 6" aria-hidden="true" class="size-2.5 opacity-55 max-lg:hidden"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>{{/ if }}
           {{# if url }}</a>{{ else }}</button>{{/ if }}
@@ -35,7 +44,9 @@
                      max-lg:pb-2 max-lg:pl-4">
             {{# each children }}
             <li>
-              <a href="{{ url }}" class="block rounded px-3 py-2.5 text-[0.95rem] font-medium text-ink no-underline hover:bg-mist max-lg:px-0 max-lg:py-2">
+              <a href="{{ url }}" class="block rounded px-3 py-2.5 text-[0.95rem] font-medium text-ink no-underline hover:bg-mist max-lg:px-0 max-lg:py-2
+                                         max-lg:group-data-[tone=dark]/header:text-onink max-lg:group-data-[tone=dark]/header:hover:bg-transparent
+                                         max-lg:group-data-[tone=dark]/header:hover:text-white">
                 {{ label }}
                 {{# if description }}<span class="mt-0.5 block text-[0.85rem] font-normal text-muted max-lg:hidden">{{ description }}</span>{{/ if }}
               </a>
@@ -46,9 +57,11 @@
         </li>
         {{/ each }}
         {{# if nav.header.cta }}
-        <li class="max-lg:mt-5">
-          <a class="btn btn-primary max-lg:w-full max-lg:justify-center" href="{{ nav.header.cta.url }}">{{ nav.header.cta.label }}</a>
+        <li class="max-lg:mt-5 lg:group-data-[layout=center]/header:ml-auto lg:group-data-[layout=left]/header:ml-auto">
+          <a class="btn btn-primary group-data-[tone=dark]/header:bg-white group-data-[tone=dark]/header:text-ink group-data-[tone=dark]/header:hover:bg-brand-wash group-data-[tone=dark]/header:hover:text-ink max-lg:w-full max-lg:justify-center" href="{{ nav.header.cta.url }}">{{ nav.header.cta.label }}</a>
         </li>
+        {{ else }}
+        <li role="presentation" class="hidden lg:group-data-[layout=center]/header:block lg:ml-auto"></li>
         {{/ if }}
       </ul>
     </nav>

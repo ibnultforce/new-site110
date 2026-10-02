@@ -38,7 +38,7 @@ BreadcrumbList) tuned per page type.
 | --- | --- |
 | Company name, URL, tagline, theme colour | `site.config.json` |
 | Email, WhatsApp, booking link, reply time | `site.config.json` → `contact` |
-| Navbar, dropdowns, footer columns, legal links | `content/data/navigation.json` |
+| Navbar, dropdowns, footer columns, legal links, header/footer colours and layout | `content/data/navigation.json` (`appearance` for the look) |
 | Headline stats, clouds, integrations, process | `content/data/company.json` |
 | FAQ (filtered per page by topic) | `content/data/faq.json` |
 | Testimonials | `content/data/testimonials.json` |
