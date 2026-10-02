@@ -19,8 +19,10 @@
  *   node scripts/edit-page.js <page> --generate ["<extra direction>"]
  *   node scripts/edit-page.js <page> --generate --dry-run
  *
- * Convert (--from-html=<file>): turn an existing HTML page (from an old site,
- * say) into the page's markdown. The site's header, footer, navigation,
+ * Convert (--from-html=<file>): bring an existing HTML page (from an old site,
+ * say) in as the page. By default its HTML and CSS are kept as they are (see
+ * "--keep-styles" below, now the default); --markdown rewrites it as markdown
+ * in the site's design instead, as described here. The site's header, footer, navigation,
  * sidebars, scripts and styles are cut out before Claude sees the HTML
  * (scripts/lib/html-source.js), and Claude leaves out any it still finds.
  * The wording is kept. The HTML replaces the page completely: only the fields
@@ -32,7 +34,7 @@
  *   node scripts/edit-page.js <page> --from-html=old/about.html ["<extra direction>"]
  *   node scripts/edit-page.js <page> --from-html=old/about.html --dry-run
  *
- * Add --keep-styles to keep the old page's look instead: the body is copied
+ * Keeping the page's look (the default; --keep-styles is still accepted): the body is copied
  * as-is (classes, inline styles, SVG; header, footer and navigation still
  * removed) rather than converted to markdown, and the page's <style> blocks
  * plus any --css=<file.css> (its linked stylesheets, repeatable) are scoped to
@@ -137,7 +139,10 @@ const generateFlag = Boolean(flag('generate'));
 const imageArgs = argv.filter((a) => a.startsWith('--image=')).map((a) => a.slice('--image='.length));
 const proposalOut = flag('proposal-out');
 const fromHtml = flag('from-html');
-const keepStylesFlag = Boolean(flag('keep-styles'));
+// A conversion keeps the page's own HTML and CSS unless --markdown asks for it to be rewritten in
+// the site's design. --keep-styles is still accepted (it was needed before this was the default).
+const markdownFlag = Boolean(flag('markdown'));
+const keepStylesFlag = !markdownFlag;
 const cssArgs = argv.filter((a) => a.startsWith('--css=')).map((a) => a.slice('--css='.length));
 const noRenderCheck = Boolean(flag('no-render-check'));
 
@@ -1688,7 +1693,7 @@ async function runQueue() {
     } else {
       const relFile = (job.file && resolveFile(job.file)) || String(job.file || '');
       ok = await applyEdit(relFile, job.instruction || '', Array.isArray(job.images) ? job.images : [], mode, job.source || null, {
-        keepStyles: job.keepStyles === true,
+        keepStyles: job.markdown !== true && job.keepStyles !== false,
         css: Array.isArray(job.css) ? job.css.map(String) : [],
       });
     }
@@ -1723,16 +1728,17 @@ if (positional.length) {
   const mode = generateFlag ? 'generate' : fromHtml !== undefined ? 'convert' : 'edit';
   const usable =
     (mode === 'edit' ? Boolean(instruction) : mode === 'generate' ? fromHtml === undefined : typeof fromHtml === 'string') &&
-    ((!keepStylesFlag && !cssArgs.length) || mode === 'convert');
+    ((!markdownFlag && !flag('keep-styles') && !cssArgs.length) || mode === 'convert') &&
+    !(markdownFlag && cssArgs.length);
   if (!usable) {
     console.error(`
   Usage:
     node scripts/edit-page.js <page> "<instruction>"          edit by instruction
     node scripts/edit-page.js <page> --generate ["<direction>"]  turn the page's draft into the finished page
-    node scripts/edit-page.js <page> --from-html=<file.html> ["<direction>"]
-                                                              convert an existing HTML page into this page
-    node scripts/edit-page.js <page> --from-html=<file.html> --keep-styles [--css=<file.css>...]
-                                                              copy it as-is with its own CSS instead
+    node scripts/edit-page.js <page> --from-html=<file.html> [--css=<file.css>...] ["<direction>"]
+                                                              copy an existing HTML page in, as it is, with its own CSS
+    node scripts/edit-page.js <page> --from-html=<file.html> --markdown ["<direction>"]
+                                                              rewrite it as markdown in the site's design instead
     node scripts/edit-page.js                                 run every queued edit
     node scripts/edit-page.js --list                          show the queue
 `);

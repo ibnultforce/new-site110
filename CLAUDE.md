@@ -51,9 +51,9 @@ npm run page:edit:preview                          # same, print only, write not
 npm run page:edit:list                             # list the pending queue, run nothing
 npm run page:generate -- <page> ["<direction>"]    # Claude turns the page's own draft (.md) into the finished page
 npm run page:generate:preview -- <page>            # same, print only, write nothing
-npm run page:edit -- <page> --from-html=<file.html> ["<direction>"]  # Claude converts an existing HTML page into the page
+npm run page:edit -- <page> --from-html=<file.html> [--css=<file.css>]  # bring an HTML page in as it is, with its own CSS
 npm run page:edit:preview -- <page> --from-html=<file.html>         # same, print only, write nothing
-npm run page:edit -- <page> --from-html=<file.html> --keep-styles [--css=<file.css>]  # copy it as-is with its own CSS
+npm run page:edit -- <page> --from-html=<file.html> --markdown ["<direction>"]  # Claude rewrites it as markdown in the site's design
 npm run md:edit -- <file.md> "<instruction>"       # edit a markdown file outside content/ with Claude
 npm run md:edit:preview -- <file.md> "<instruction>" # same, print only, write nothing
 npm run md:edit:list                               # list the markdown files md:edit can change
@@ -230,7 +230,11 @@ npm run page:edit -- about-us --from-html=old-site/about.html "Put the history t
 ```
 
 `--from-html=<file>` takes an HTML file inside the repo (up to 2 MB) and
-replaces the page with its content, converted to markdown. The target must
+replaces the page with it. By default the page keeps its own HTML and CSS (the
+`--keep-styles` behaviour described below, which is still accepted as a
+flag); queue entries do the same unless they say `"markdown": true`. With
+`--markdown` its content is converted to markdown instead, as this section
+describes first. The target must
 already exist under `content/`, because it decides where the page lives. The
 replacement is complete: before Claude sees the page, `replacedPage` cuts its
 frontmatter down to `REPLACE_KEEPS` (the locked fields plus `title`,
