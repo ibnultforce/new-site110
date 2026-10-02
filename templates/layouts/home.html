@@ -6,7 +6,7 @@
       <p class="mt-5 mb-8 max-w-[54ch] text-lede text-ink-2">{{ page.heroText }}</p>
       <div class="flex flex-wrap gap-3.5">
         <a class="btn btn-primary" href="{{ site.contact.bookingUrl }}" target="_blank" rel="noopener">{{ site.contact.bookingLabel }}</a>
-        <a class="btn btn-ghost" href="/products.html">{{# if page.productsButtonLabel }}{{ page.productsButtonLabel }}{{ else }}See our products{{/ if }}</a>
+        {{# if pageUrls.products }}<a class="btn btn-ghost" href="{{ pageUrls.products }}">{{# if page.productsButtonLabel }}{{ page.productsButtonLabel }}{{ else }}See our products{{/ if }}</a>{{/ if }}
       </div>
       <ul class="mt-8 flex flex-wrap gap-2">
         {{# each data.company.clouds }}

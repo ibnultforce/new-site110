@@ -7,7 +7,7 @@
     <div class="flex flex-col gap-5">
       <div class="flex flex-wrap gap-3.5">
         <a class="btn btn-light" href="{{ site.contact.bookingUrl }}" target="_blank" rel="noopener">{{ site.contact.bookingLabel }}</a>
-        <a class="btn btn-onink" href="/contact.html">Contact page</a>
+        {{# if pageUrls.contact }}<a class="btn btn-onink" href="{{ pageUrls.contact }}">Contact page</a>{{/ if }}
       </div>
       <p class="text-onink-muted">
         <a href="mailto:{{ site.contact.email }}" class="text-[#9fc4ee] no-underline hover:underline">{{ site.contact.email }}</a> ·

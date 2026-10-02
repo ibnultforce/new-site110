@@ -232,9 +232,43 @@ function urlWarnings(text, warnings) {
 const scaleRem = (text, factor) =>
   factor === 1 ? text : text.replace(/(-?\d*\.?\d+)rem\b/g, (_, n) => `${+(Number(n) * factor).toFixed(4)}rem`);
 
+/**
+ * What the page's own <html> rules set, property by property (the last
+ * plain html/:root rule wins, as it would on most pages). <html> and <body>
+ * are both the wrapper in the copy, so "inherit" on a body rule would reach
+ * the site's page around it instead of the old <html>: Tailwind's preflight
+ * (html { line-height: 1.5 } then body { line-height: inherit }) would give
+ * every line the site's line height. Body rules use these values instead.
+ */
+function htmlDeclarations(sheets) {
+  const values = new Map();
+  for (const { css } of sheets) {
+    for (const node of parse(stripComments(css))) {
+      if (node.type !== 'block' || node.prelude.startsWith('@') || node.body.includes('{')) continue;
+      if (!splitList(node.prelude).some((s) => /^(html|:root)$/i.test(s))) continue;
+      for (const decl of node.body.split(';')) {
+        const m = /^\s*([\w-]+)\s*:\s*([\s\S]+?)\s*$/.exec(decl);
+        if (m && !m[1].startsWith('--')) values.set(m[1].toLowerCase(), m[2].replace(/\s*!important$/i, ''));
+      }
+    }
+  }
+  return values;
+}
+
 /** Declarations with renamed keyframes and rescaled rem values; root rules get absolute font sizes. */
 function rewriteDeclarations(body, options, root) {
-  let out = scaleRem(body, options.remFactor);
+  let out = body;
+  // "inherit" on the old <body> took the old <html>'s value (or, if it set none, the initial one).
+  if (root === 'body') {
+    out = out.replace(/(^|;)(\s*)([\w-]+)(\s*:\s*)inherit\b/gi, (_, lead, space, prop, colon) => {
+      let value = options.htmlValues.get(prop.toLowerCase()) ?? 'initial';
+      // A relative root font size is relative to the browser's 16px; the body rule below would rescale it.
+      const relative = prop.toLowerCase() === 'font-size' && /^(-?\d*\.?\d+)(%|em)$/i.exec(value);
+      if (relative) value = `${+((Number(relative[1]) / (relative[2] === '%' ? 100 : 1)) * 16).toFixed(3)}px`;
+      return `${lead}${space}${prop}${colon}${value}`;
+    });
+  }
+  out = scaleRem(out, options.remFactor);
   if (options.keyframes.size) {
     out = out.replace(/(animation(?:-name)?\s*:\s*)([^;}]+)/gi, (_, prop, value) =>
       prop + value.replace(/[\w-]+/g, (word) => (options.keyframes.has(word) ? options.prefix + word : word)));
@@ -399,7 +433,7 @@ export function scopeCss(sheets, { scope, prefix, classes, ids, rootClasses = ne
   }
   const options = {
     scope, prefix, classes, ids, rootClasses: roots, rootIds,
-    remFactor: rootFontFactor(sheets), keyframes: keyframeNames(sheets), layers: [],
+    remFactor: rootFontFactor(sheets), keyframes: keyframeNames(sheets), layers: [], htmlValues: htmlDeclarations(sheets),
   };
   let rules = 0;
   for (const { name, css } of sheets) {
@@ -413,9 +447,13 @@ export function scopeCss(sheets, { scope, prefix, classes, ids, rootClasses = ne
   // layer: heading colours, text-wrap, img/svg display, border-box pseudo-elements…) roll back
   // to browser defaults. Zero specificity: imported rules win. When the imported CSS uses cascade
   // layers these rules go in a layer ordered before them, so the imported layers still win.
+  // SVG is left out of "all: revert": its geometry (r, cx, d, width…) comes from attributes that
+  // count as styling, which revert would wipe, so every shape would draw at size zero. The <svg>
+  // element itself only rolls back what the site's base layer changes (display, vertical-align).
   const isolateRules = [
     `:where(${scope}) { all: initial; display: block; margin: 8px; }`,
-    `:where(${scope} *) { all: revert; }`,
+    `:where(${scope} *:not(svg, svg *)) { all: revert; }`,
+    `:where(${scope} svg) { display: revert; vertical-align: revert; box-sizing: revert; }`,
     `:where(${scope}, ${scope} *)::before, :where(${scope}, ${scope} *)::after { all: revert; }`,
     `:where(${scope} *)::marker { all: revert; }`,
     `:where(${scope} *)::placeholder { all: revert; }`,

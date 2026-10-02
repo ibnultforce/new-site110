@@ -431,6 +431,44 @@ export function presentationalHints(html, scope, bodyAttrs = '') {
   return out;
 }
 
+const SVG_REFERENCE = /\b(?:xlink:)?href\s*=\s*["']#([\w:.-]+)["']|url\(\s*["']?#([\w:.-]+)["']?\s*\)/gi;
+const SVG_DEFINITION = /^<(symbol|linearGradient|radialGradient|clipPath|mask|pattern|filter|marker|g|path|defs)\b/i;
+
+/**
+ * SVG definitions the kept content uses but that were cut away with the rest
+ * of the page: an icon sprite (a hidden <svg> of <symbol>s, often the first
+ * thing in <body>) that <use href="#i-arrow"> draws from, or a gradient a
+ * fill="url(#g)" points at. Each is copied, with what it refers to in turn,
+ * into one hidden <svg> to append to the content (classes get `prefix`, and
+ * <title>s go so they add no text). Returns '' when nothing is missing.
+ */
+export function svgDefinitions(source, kept, prefix = '') {
+  const html = source.replace(/<!--[\s\S]*?-->/g, '');
+  const escape = (id) => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const defined = (text, id) => new RegExp(`\\bid\\s*=\\s*["']?${escape(id)}(?=["'\\s/>])`).test(text);
+  const queue = [...kept.matchAll(SVG_REFERENCE)].map((m) => m[1] || m[2]).filter((id) => !defined(kept, id));
+  const done = new Set();
+  const found = [];
+  while (queue.length) {
+    const id = queue.shift();
+    if (done.has(id)) continue;
+    done.add(id);
+    const open = new RegExp(`<([a-zA-Z][\\w:-]*)\\b(?:[^>"']|"[^"]*"|'[^']*')*?\\bid\\s*=\\s*(["']?)${escape(id)}\\2(?=[\\s/>])(?:[^>"']|"[^"]*"|'[^']*')*>`, 'i');
+    const m = open.exec(html);
+    if (!m || !SVG_DEFINITION.test(m[0])) continue;
+    const element = m[0].endsWith('/>') ? m[0] : outerOf(html.slice(m.index), open);
+    if (!element) continue;
+    found.push(element);
+    for (const ref of element.matchAll(SVG_REFERENCE)) queue.push(ref[1] || ref[2]);
+  }
+  if (!found.length) return '';
+  const markup = found
+    .join('')
+    .replace(/<title\b[\s\S]*?<\/title\s*>/gi, '')
+    .replace(/\bclass\s*=\s*(["'])([^"']*)\1/gi, (_, q, names) => `class=${q}${names.split(/\s+/).filter(Boolean).map((n) => prefix + n).join(' ')}${q}`);
+  return `<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">${markup}</svg>`;
+}
+
 /** The attributes of the page's <body> tag, as written. */
 export function bodyAttributes(source) {
   return /<body\b((?:[^>"']|"[^"]*"|'[^']*')*)>/i.exec(source.replace(/<!--[\s\S]*?-->/g, ''))?.[1] || '';

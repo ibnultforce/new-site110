@@ -108,6 +108,16 @@ page; both always run over the whole site.
    files that don't exist; it warns on missing or overlong SEO fields, missing
    `alt` text and thin body content.
 
+Navigation never links to a page the site doesn't have. `loadSite` drops header,
+footer and legal links (and the header button) whose internal URL isn't a page,
+a generated file or a file in `assets/`/`static/` (`pageExists`); a dropdown
+whose own page is missing keeps its children as an unlinked button. The build
+prints what it left out (`nav.missing`), so a site tree that replaces the
+template's pages (no `/contact.html`, `/products.html`…) still passes
+`npm run check`. Templates link to such pages only through `pageUrls` (the
+contact page and each collection's listing page, null when missing), and a
+breadcrumb parent whose listing page is missing is left out.
+
 Nothing in the pipeline is page-specific: a page exists because a markdown file
 exists in a collection directory, and navigation highlighting, listing pages,
 the sitemap, RSS, the search index and JSON-LD are all derived from `model` at
@@ -319,6 +329,10 @@ Other pages' CSS is handled too:
 - When the page set its root font size (`html { font-size: 62.5% }`), its rem
   values in CSS and inline styles are rescaled. Sizes relative to the parent on
   root rules become px, because the wrapper's parent is the site's page.
+- `inherit` in a `body` rule takes what the page's `html` rules set
+  (`htmlDeclarations`), or the initial value: both are the wrapper, so it
+  would otherwise inherit the site's page (Tailwind's preflight sets
+  `html { line-height: 1.5 }` then `body { line-height: inherit }`).
 - `overflow: hidden` on the root becomes `clip`. On a real page it belongs to
   the viewport, but on the wrapper it would make a scroll container and break
   `position: sticky`.
@@ -327,9 +341,15 @@ Two zero-specificity rules isolate the page from the site:
 `:where(.imported-page) { all: initial; display: block; margin: 8px }` makes
 the wrapper start like a fresh `<body>`, with the browser's default margin
 rather than the site body's size, and
-`:where(.imported-page *) { all: revert }` rolls the site's preflight and base
-layer (heading colours, `text-wrap: balance`, img/svg display) back to browser
-defaults. Matching rules do the same for `::before`/`::after` (the reset
+`:where(.imported-page *:not(svg, svg *)) { all: revert }` rolls the site's
+preflight and base layer (heading colours, `text-wrap: balance`, img display)
+back to browser defaults. SVG is left out because its geometry (`r`, `cx`,
+`d`, `width`) comes from attributes that count as styling, which `revert`
+would wipe; `<svg>` itself only reverts `display`, `vertical-align` and
+`box-sizing`. SVG definitions the kept content uses but that lived outside it
+(an icon sprite of `<symbol>`s for `<use href="#i-arrow">`, a gradient for
+`fill="url(#g)"`) are copied into a hidden `<svg>` at the end of the body
+(`svgDefinitions` in `html-source.js`). Matching rules do the same for `::before`/`::after` (the reset
 would make them border-box and resize them), `::marker`, `::placeholder` and
 `::selection`.
 
@@ -474,8 +494,12 @@ write the body from. `npm run scaffold` walks it and creates whatever markdown
 files are missing (`--force` to also overwrite existing ones, `--file=` to use
 a different tree file); `npm run scaffold:preview` prints the plan without
 writing. A line whose path ends in `.css` declares a global stylesheet and is
-scaffolded to `styles/global/<path>` (see "Global stylesheets" above). Tree
-paths must be relative and use only letters, digits, `_`, `-`, `.` and `/`.
+scaffolded to `styles/global/<path>` (see "Global stylesheets" above). A page
+path may contain spaces (`about 2.html` becomes `about-2`), a path without an
+extension is a page (`thank-you` is `thank-you.html`), a duplicate is
+skipped, and a folder heading (`css/`) is ignored. Stylesheet paths may only
+use letters, digits, `_`, `-`, `.` and `/`. The scaffold prints a note for each
+line it skipped or read differently.
 
 `scripts/scaffold-schedule.md` holds a fenced JSON array of dated one-off
 jobs (`location`, `title`, `date`, `description`, plus optional `content`,

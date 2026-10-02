@@ -19,14 +19,14 @@
       <ul class="flex items-center gap-1 max-lg:flex-col max-lg:items-stretch max-lg:gap-0">
         {{# each nav.header.items }}
         <li class="group relative">
-          <a href="{{ url }}"{{{ ariaCurrent }}}
+          {{# if url }}<a href="{{ url }}"{{{ ariaCurrent }}}{{ else }}<button type="button" aria-haspopup="true"{{/ if }}
              class="inline-flex items-center gap-1.5 rounded px-3 py-2.5 text-[0.95rem] font-medium
                     text-ink-2 no-underline hover:bg-mist hover:text-ink
                     aria-[current=page]:text-brand
                     max-lg:block max-lg:rounded-none max-lg:border-b max-lg:border-line max-lg:px-0 max-lg:py-3 max-lg:text-[1.05rem]">
             {{ label }}
             {{# if hasChildren }}<svg viewBox="0 0 10 6" aria-hidden="true" class="size-2.5 opacity-55 max-lg:hidden"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>{{/ if }}
-          </a>
+          {{# if url }}</a>{{ else }}</button>{{/ if }}
           {{# if hasChildren }}
           <ul class="lg:absolute lg:left-0 lg:top-full lg:z-50 lg:hidden lg:min-w-76 lg:rounded-card
                      lg:border lg:border-line lg:bg-white lg:p-2 lg:shadow-[0_18px_40px_-22px_rgb(11_26_46/0.45)]
@@ -44,9 +44,11 @@
           {{/ if }}
         </li>
         {{/ each }}
+        {{# if nav.header.cta }}
         <li class="max-lg:mt-5">
           <a class="btn btn-primary max-lg:w-full max-lg:justify-center" href="{{ nav.header.cta.url }}">{{ nav.header.cta.label }}</a>
         </li>
+        {{/ if }}
       </ul>
     </nav>
   </div>

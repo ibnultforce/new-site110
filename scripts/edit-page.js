@@ -104,6 +104,7 @@ import {
   readHtmlSource,
   rewriteImages,
   stylesheetsIn,
+  svgDefinitions,
   visibleText,
 } from './lib/html-source.js';
 import { detectReveal, scaleInlineRem, scopeCss } from './lib/css-scope.js';
@@ -681,6 +682,9 @@ function buildStyledPage(source, cssFiles, relFile) {
     rootClasses: page.rootClasses, rootIds: page.rootIds, reveal,
     hints: presentationalHints(body, `.${IMPORT_SCOPE}`, bodyAttributes(html)),
   });
+  // Icons drawn from a sprite outside the kept content (<use href="#i-arrow">) need it with them.
+  const sprite = svgDefinitions(html, body, IMPORT_PREFIX);
+  if (sprite) body += `\n${sprite}`;
   body = scaleInlineRem(body, scoped.remFactor);
   warnings.push(...scoped.warnings);
   if (!scoped.rules) warnings.push("no CSS rules apply to this page's content, so it will show with browser default styles");
@@ -893,7 +897,8 @@ function originalTestDocument(styled) {
   head = head.replace(/<head\b[^>]*>/i, (open) => `${open}${/name\s*=\s*["']?viewport/i.test(head) ? '' : '<meta name="viewport" content="width=device-width, initial-scale=1">'}${unmatched}`);
   const htmlTag = /<html\b[^>]*>/i.exec(source)?.[0] ?? '<html>';
   const bodyTag = /<body\b[^>]*>/i.exec(source)?.[0] ?? '<body>';
-  const content = rewriteImages(cleanHtml(styled.html, { keepStyles: true, prefix: '' }).html, siteImage);
+  const kept = cleanHtml(styled.html, { keepStyles: true, prefix: '' }).html;
+  const content = rewriteImages(`${kept}\n${svgDefinitions(styled.html, kept)}`, siteImage);
   return `<!DOCTYPE html>\n${htmlTag}${head}${bodyTag}\n${content}\n</body></html>\n`;
 }
 

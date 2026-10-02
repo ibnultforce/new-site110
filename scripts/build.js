@@ -80,7 +80,14 @@ function write(file, contents) {
 function build() {
   const started = Date.now();
   const model = loadSite({ includeDrafts, includeFuture: includeDrafts });
-  const { site, data, collections, nav, all } = model;
+  const { site, data, collections, nav, all, pageExists } = model;
+
+  // Pages the templates link to by name, null when this site doesn't have them (a site tree
+  // may replace the template's own pages): the contact page and each collection's listing.
+  const pageUrls = { contact: pageExists('/contact.html') ? '/contact.html' : null };
+  for (const [name, config] of Object.entries(site.collections)) {
+    pageUrls[name] = config.index?.url && pageExists(config.index.url) ? config.index.url : null;
+  }
 
   const engine = new TemplateEngine();
   loadTemplates(engine);
@@ -106,11 +113,13 @@ function build() {
     }
 
     // Breadcrumb parents come from the collection config, never hand-written.
+    // A listing page that doesn't exist isn't a parent.
     const parent = site.collections[entry.collection]?.index;
+    const parentOk = Boolean(parent?.url && pageExists(parent.url));
     const page = {
       ...entry,
-      parentLabel: entry.parentLabel || parent?.label || null,
-      parentUrl: entry.parentUrl || parent?.url || null,
+      parentLabel: entry.parentLabel || (parentOk ? parent.label : null) || null,
+      parentUrl: entry.parentUrl || (parentOk ? parent.url : null),
     };
 
     // FAQ entries are filtered from the one shared file by topic. An imported page shows none.
@@ -136,6 +145,7 @@ function build() {
       collections: lists,
       ...lists,
       faqItems,
+      pageUrls,
       isHome: entry.url === '/',
       latestPosts: (lists.blog || []).filter((p) => p.url !== entry.url).slice(0, 3),
       recentPosts: (lists.blog || []).filter((p) => p.url !== entry.url).slice(0, 5),
@@ -242,6 +252,11 @@ function build() {
   }
   if (includeDrafts) console.log('\n  (drafts and future-dated posts included)');
   if (base) console.log(`  (internal links prefixed with ${base})`);
+  if (nav.missing.length) {
+    console.log("\n  Navigation links to pages this site doesn't have, left out of every page:");
+    for (const { where, label, url } of nav.missing) console.log(`    ${where}: "${label}" -> ${url}`);
+    console.log('  Point them at real pages, or remove them, in content/data/navigation.json.');
+  }
   console.log('');
 
   return { written, model };

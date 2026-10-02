@@ -233,12 +233,64 @@ export function loadSite({ includeDrafts = false, includeFuture = false } = {}) 
     collections[name] = entries;
   }
 
-  const nav = buildNavigation(data.navigation || { header: { items: [] } }, collections, site);
-
   const all = Object.values(collections).flat();
   const byUrl = new Map(all.map((entry) => [entry.url, entry]));
+  const pageExists = linkTarget(byUrl);
 
-  return { site, data, collections, nav, all, byUrl };
+  // Navigation may still name pages this site doesn't have (the template's own, after a site
+  // tree replaced them): those links are left out and listed in nav.missing, never built broken.
+  const nav = pruneNavigation(buildNavigation(data.navigation || { header: { items: [] } }, collections, site), pageExists);
+
+  return { site, data, collections, nav, all, byUrl, pageExists };
+}
+
+// Files the build writes besides pages, which internal links may point at.
+const GENERATED_FILES = new Set(['/sitemap.xml', '/rss.xml', '/robots.txt', '/search-index.json']);
+
+/**
+ * Whether an internal link resolves: to a page, a generated file, or a file in
+ * assets/ or static/. External links, mailto:, anchors and empty values aren't
+ * internal, so they count as resolving.
+ */
+function linkTarget(byUrl) {
+  return (url) => {
+    if (typeof url !== 'string' || !url.startsWith('/') || url.startsWith('//')) return true;
+    const bare = url.split(/[?#]/)[0] || '/';
+    if (GENERATED_FILES.has(bare)) return true;
+    const trimmed = bare.length > 1 ? bare.replace(/\/$/, '') : bare;
+    if ([bare, `${trimmed}/`, trimmed, `${trimmed}.html`].some((u) => byUrl.has(u))) return true;
+    const rel = decodeURIComponent(bare.slice(1));
+    if (!rel || rel.split('/').includes('..')) return false;
+    return (rel.startsWith('assets/') && fs.existsSync(path.join(ROOT, rel))) || fs.existsSync(path.join(ROOT, 'static', rel));
+  };
+}
+
+/**
+ * The navigation without links to pages that don't exist. A dropdown whose own
+ * page is missing keeps its children with no link of its own (url null); one
+ * left with nothing goes, as does an emptied footer column. Returns the nav with
+ * `missing`: [{ where, label, url }].
+ */
+function pruneNavigation(nav, exists) {
+  const missing = [];
+  const prune = (items, where) =>
+    items.flatMap((item) => {
+      const children = prune(item.children || [], where);
+      const ok = !item.url || exists(item.url);
+      if (!ok) missing.push({ where, label: item.label, url: item.url });
+      if (!ok && !children.length) return [];
+      return [{ ...item, url: ok ? item.url : null, children, hasChildren: children.length > 0 }];
+    });
+  const cta = nav.header.cta && !exists(nav.header.cta.url) ? null : nav.header.cta;
+  if (nav.header.cta && !cta) missing.push({ where: 'header button', label: nav.header.cta.label, url: nav.header.cta.url });
+  return {
+    header: { items: prune(nav.header.items, 'header'), cta },
+    footer: nav.footer
+      .map((column) => ({ ...column, links: prune(column.links, `footer "${column.title}"`) }))
+      .filter((column) => column.links.length),
+    legal: prune(nav.legal, 'footer legal links'),
+    missing,
+  };
 }
 
 /** Lightweight version of an entry, safe to embed in other entries. */

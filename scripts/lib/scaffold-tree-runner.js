@@ -42,27 +42,49 @@ import { generateChangelog } from './changelog.js';
 /** Where a global stylesheet declared in the tree lives in the repo. */
 export const GLOBAL_CSS_DIR = 'styles/global';
 
-/** A tree path, or null if it isn't a safe relative path to a .html page or a .css stylesheet. */
+/**
+ * A tree path, or { why } when the line isn't one. Pages may contain spaces
+ * ("about 2.html" becomes the slug "about-2"), and a path without an extension
+ * ("thank-you", an old site's clean URL) is the page "thank-you.html". A
+ * stylesheet path is a file name the repo can hold as it is. A folder heading
+ * ("css/") is { why: null }: not a path, and not worth a note.
+ */
 function treePath(raw) {
   const value = raw.trim().replace(/^\/+/, '');
-  if (!/\.(html|css)$/.test(value) || !/^[\w./-]+$/.test(value)) return null;
-  return value.split('/').some((seg) => !seg || seg === '.' || seg === '..') ? null : value;
+  if (!value || value.endsWith('/')) return { why: null };
+  if (value.split('/').some((seg) => !seg.trim() || seg === '.' || seg === '..')) return { why: 'not a relative path' };
+  if (/\.css$/i.test(value)) return /^[\w./-]+$/.test(value) ? { path: value } : { why: 'a stylesheet path may only use letters, digits, "_", "-", "." and "/"' };
+  if (/\.html$/i.test(value)) return { path: value };
+  if (/\.[a-z0-9]+$/i.test(path.posix.basename(value))) return { why: 'only .html pages and .css stylesheets are scaffolded' };
+  return { path: `${value}.html`, assumed: true };
 }
 
-function parseTree(text) {
+/** The tree's page and stylesheet lines. Lines that are skipped, or read as something else, go in `notes`. */
+function parseTree(text, notes = []) {
   const nodes = [];
+  const seen = new Set();
   for (const raw of text.split('\n')) {
     const line = raw.replace(/\r$/, '');
     const bullet = /^\s*-\s+(.*)$/.exec(line);
     if (!bullet) continue;
 
-    const rest = bullet[1];
-    const split = /^(\S+)\s+(?:—|--)\s+(.*)$/.exec(rest);
-    const rawPath = treePath(split ? split[1] : rest);
+    const rest = bullet[1].trim();
+    const split = /^(.+?)\s+(?:—|--)\s+(.*)$/.exec(rest);
+    const { path: rawPath, why, assumed } = treePath(split ? split[1] : rest);
     const instruction = split ? split[2].trim() : '';
-    if (!rawPath) continue;
+    if (!rawPath) {
+      if (why) notes.push(`"${rest}" skipped: ${why}`);
+      continue;
+    }
+    const key = rawPath.toLowerCase();
+    if (seen.has(key)) {
+      notes.push(`"${rest}" skipped: ${rawPath} is already in the tree`);
+      continue;
+    }
+    seen.add(key);
+    if (assumed) notes.push(`"${rest}" has no extension, so it's the page ${rawPath}`);
 
-    nodes.push({ rawPath, instruction, kind: rawPath.endsWith('.css') ? 'css' : 'page' });
+    nodes.push({ rawPath, instruction, kind: /\.css$/i.test(rawPath) ? 'css' : 'page' });
   }
   return nodes;
 }
@@ -234,7 +256,9 @@ export function runScaffoldTree({ treeFile, dryRun = false, force = false }) {
 
   const site = readJson(path.join(ROOT, 'site.config.json'));
   const dirSlugMap = collectionsByDirSlug(site);
-  const nodes = parseTree(fs.readFileSync(treeFile, 'utf8'));
+  const notes = [];
+  const nodes = parseTree(fs.readFileSync(treeFile, 'utf8'), notes);
+  for (const note of notes) console.log(`  note: ${note}`);
 
   if (!nodes.length) {
     console.log(`\n  No page or stylesheet paths found in ${path.relative(ROOT, treeFile)}.\n`);

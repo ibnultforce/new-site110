@@ -6,6 +6,8 @@ If `scripts/site-tree-content/<path>.md` exists for a path (same path, `.html` s
 
 A line whose path ends in `.css` (e.g. `- css/style.css`) declares a global stylesheet: the CSS the design's pages share. Scaffolding creates it as `styles/global/<path>` (from `scripts/site-tree-content/<path>` verbatim if that exists). Every page converted with `--keep-styles` that links a global stylesheet (by file name) gets it, in the place its `<link href="…style.css">` had, so you don't upload it with each page. A page that doesn't link it, such as one from another design, doesn't get it. Uploading a file with the same name during a conversion replaces the stored one.
 
+A path without an extension (`- thank-you`) is the page `thank-you.html`, a path listed twice is scaffolded once, and a folder heading (`- css/`) is ignored. Header and footer links to pages that aren't in the site are left out when the site is built; change them in `content/data/navigation.json`.
+
 - index.html 
 - about.html 
 - contact.html
