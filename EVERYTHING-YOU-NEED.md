@@ -212,12 +212,14 @@ templates render because Tailwind reads class names out of them.
 | --- | --- |
 | `scripts/build.js` | The build. Renders everything, writes feeds and the search index. |
 | `scripts/dev.js` | Preview server on :4321, rebuilds on change, serves clean URLs. |
-| `scripts/check.js` | Broken internal links, duplicate URLs, missing alt text, SEO field lengths. Exits non-zero on errors. |
+| `scripts/check.js` | Broken internal links, duplicate URLs, missing alt text, SEO problems (from `lib/seo.js`). Exits non-zero on errors. |
+| `scripts/seo.js` | SEO for every page: audit with search-result previews, set fields by hand, or have Claude write them (`npm run seo`). |
 | `scripts/new.js` | Scaffolds content with the correct frontmatter. |
 | `scripts/lib/template.js` | The template engine: `{{ }}`, `{{{ }}}`, `{{#if}}`, `{{#each}}`, `{{> partial}}`. |
 | `scripts/lib/markdown.js` | Markdown and frontmatter parsing. |
 | `scripts/lib/content.js` | Collection loading, URL rules, navigation expansion. |
 | `scripts/lib/schema.js` | JSON-LD per page type. |
+| `scripts/lib/seo.js` | Each page's title, description, canonical, robots and social tags, and the SEO audit. |
 | `scripts/lib/css.js` | Runs the Tailwind CLI as part of the build. |
 
 ### Template syntax

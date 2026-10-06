@@ -124,10 +124,11 @@ const MAX_VISION_BYTES = 18 * 1024 * 1024;
 // Fields that decide where a page lives and whether it's published.
 const LOCKED_FIELDS = ['slug', 'url', 'layout', 'date', 'draft', 'order'];
 // What a converted page keeps of the page it replaces: where it lives, whether it's listed and
-// indexed, and the listing facts an HTML page doesn't carry. The title is kept only as a fallback
-// and the description never (see replacedPage). Everything else (body, hero, highlights, FAQ topics, call to action…) is the old
-// page's content and goes.
-const REPLACE_KEEPS = [...LOCKED_FIELDS, 'title', 'description', 'noindex', 'navHidden', 'author', 'category', 'tags'];
+// indexed, the search phrase and canonical URL it's meant for (lib/seo.js), and the listing facts
+// an HTML page doesn't carry. The title is kept only as a fallback and the description never (see
+// replacedPage). Everything else (body, hero, highlights, FAQ topics, call to action, the SEO title
+// and description written for the old copy…) is the old page's content and goes.
+const REPLACE_KEEPS = [...LOCKED_FIELDS, 'title', 'description', 'noindex', 'navHidden', 'author', 'category', 'tags', 'focusKeyword', 'canonical'];
 
 const argv = process.argv.slice(2);
 const flag = (name) => {

@@ -28,7 +28,11 @@
     "page:generate:preview": "node --env-file-if-exists=.env scripts/edit-page.js --generate --dry-run",
     "md:edit": "node --env-file-if-exists=.env scripts/edit-md.js",
     "md:edit:preview": "node --env-file-if-exists=.env scripts/edit-md.js --dry-run",
-    "md:edit:list": "node scripts/edit-md.js --list"
+    "md:edit:list": "node scripts/edit-md.js --list",
+    "seo": "node --env-file-if-exists=.env scripts/seo.js",
+    "seo:report": "node scripts/seo.js --html=seo-report.html",
+    "seo:claude": "node --env-file-if-exists=.env scripts/seo.js --claude",
+    "seo:claude:preview": "node --env-file-if-exists=.env scripts/seo.js --claude --dry-run"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.3",

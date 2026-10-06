@@ -3,19 +3,28 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>{{# if page.metaTitle }}{{ page.metaTitle }}{{ else }}{{# if isHome }}{{ site.name }} | {{ site.tagline }}{{ else }}{{ page.title }} | {{ site.shortName }}{{/ if }}{{/ if }}</title>
-<meta name="description" content="{{ page.description }}">
-<link rel="canonical" href="{{ page.absoluteUrl }}">
-{{# if page.noindex }}<meta name="robots" content="noindex, follow">{{/ if }}
+<title>{{ page.seo.title }}</title>
+<meta name="description" content="{{ page.seo.description }}">
+<link rel="canonical" href="{{ page.seo.canonical }}">
+{{# if page.seo.robots }}<meta name="robots" content="{{ page.seo.robots }}">{{/ if }}
+{{# if site.seo.googleVerification }}<meta name="google-site-verification" content="{{ site.seo.googleVerification }}">{{/ if }}
+{{# if site.seo.bingVerification }}<meta name="msvalidate.01" content="{{ site.seo.bingVerification }}">{{/ if }}
 <meta name="theme-color" content="{{ site.themeColor }}">
 
-<meta property="og:type" content="{{# if page.date }}article{{ else }}website{{/ if }}">
+<meta property="og:type" content="{{ page.seo.type }}">
 <meta property="og:site_name" content="{{ site.name }}">
-<meta property="og:title" content="{{ page.title }}">
-<meta property="og:description" content="{{ page.description }}">
-<meta property="og:url" content="{{ page.absoluteUrl }}">
-<meta property="og:image" content="{{ site.url }}{{# if page.image }}{{ page.image }}{{ else }}{{ site.brand.defaultOgImage }}{{/ if }}">
+<meta property="og:locale" content="{{ site.locale }}">
+<meta property="og:title" content="{{ page.seo.socialTitle }}">
+<meta property="og:description" content="{{ page.seo.description }}">
+<meta property="og:url" content="{{ page.seo.canonical }}">
+{{# if page.seo.image }}<meta property="og:image" content="{{ page.seo.image }}">{{/ if }}
+{{# if page.seo.imageAlt }}<meta property="og:image:alt" content="{{ page.seo.imageAlt }}">{{/ if }}
+{{# if page.seo.published }}<meta property="article:published_time" content="{{ page.seo.published }}">{{/ if }}
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ page.seo.socialTitle }}">
+<meta name="twitter:description" content="{{ page.seo.description }}">
+{{# if page.seo.image }}<meta name="twitter:image" content="{{ page.seo.image }}">{{/ if }}
+{{# if site.seo.twitterHandle }}<meta name="twitter:site" content="{{ site.seo.twitterHandle }}">{{/ if }}
 
 <link rel="icon" href="{{# if site.brand.favicon }}{{ site.brand.favicon }}{{ else }}{{ site.brand.logoMark }}{{/ if }}">
 <link rel="alternate" type="application/rss+xml" title="{{ site.shortName }} blog" href="{{ site.url }}/rss.xml">

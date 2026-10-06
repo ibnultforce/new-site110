@@ -15,6 +15,7 @@ import { TemplateEngine, escapeHtml } from './lib/template.js';
 import { basePath, loadSite, paths, outputPathFor, pick, markActive, ROOT } from './lib/content.js';
 import { renderMarkdown, excerpt } from './lib/markdown.js';
 import { buildJsonLd } from './lib/schema.js';
+import { pageSeo, seoSettings } from './lib/seo.js';
 import { buildCss } from './lib/css.js';
 
 const args = new Set(process.argv.slice(2));
@@ -81,6 +82,8 @@ function build() {
   const started = Date.now();
   const model = loadSite({ includeDrafts, includeFuture: includeDrafts });
   const { site, data, collections, nav, all, pageExists } = model;
+  // Site-wide SEO settings with their defaults, for base.html (verification tags, X handle).
+  site.seo = seoSettings(site);
 
   // Pages the templates link to by name, null when this site doesn't have them (a site tree
   // may replace the template's own pages): the contact page and each collection's listing.
@@ -121,6 +124,8 @@ function build() {
       parentLabel: entry.parentLabel || (parentOk ? parent.label : null) || null,
       parentUrl: entry.parentUrl || (parentOk ? parent.url : null),
     };
+    // Title, description, canonical, robots and social tags, with the site's defaults (lib/seo.js).
+    page.seo = pageSeo(page, site);
 
     // FAQ entries are filtered from the one shared file by topic. An imported page shows none.
     const allFaq = data.faq?.items || [];
@@ -190,7 +195,8 @@ function build() {
 
   /* ---------------------------------------------------------------- feeds */
 
-  const indexable = all.filter((e) => e.noindex !== true);
+  // A page whose canonical points at another URL asks search engines to index that one instead.
+  const indexable = all.filter((e) => e.noindex !== true && !pageSeo(e, site).canonicalElsewhere);
   const sitemap =
     `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
     indexable

@@ -35,6 +35,22 @@ exist. Nothing to configure. Old-URL redirects go in
 `content/data/redirects.json` (`{ from, to, status }`), written to
 `dist/_redirects`.
 
+## SEO
+
+Every page's search title, description, focus keyphrase, social image,
+canonical URL and noindex are optional frontmatter fields (`metaTitle`,
+`metaDescription`, `focusKeyword`, `ogImage`, `ogImageAlt`, `canonical`,
+`noindex`); site-wide defaults are in `site.config.json` → `seo`.
+
+```bash
+npm run seo                                   # score every page, list what to fix
+npm run seo -- about                          # one page, shown as a Google result
+npm run seo -- about --title="…" --description="…" --keyword="…"   # set by hand
+npm run seo:claude -- about ["direction"]     # Claude writes them from the page
+npm run seo:claude -- --all                   # every page that has none yet
+npm run seo:report                            # seo-report.html: every page as a search result
+```
+
 ## Predefined .md files for scaffolding
 
 `npm run scaffold` walks `scripts/site-tree.md`. For any listed path, if

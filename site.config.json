@@ -94,6 +94,13 @@
     "branch": "main",
     "outputDir": "dist"
   },
+  "seo": {
+    "titleTemplate": "{title} | {site}",
+    "homeTitle": "{name} | {tagline}",
+    "twitterHandle": "",
+    "googleVerification": "",
+    "bingVerification": ""
+  },
   "automation": {
     "model": "claude-sonnet-4-6",
     "defaultAuthor": "TwinStack Team"

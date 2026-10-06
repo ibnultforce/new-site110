@@ -4,13 +4,16 @@
  *
  *   node scripts/check.js
  *
- * Fails the build on broken internal links or duplicate URLs. Warns on missing
- * or overlong SEO fields, missing alt text and thin pages.
+ * Fails the build on broken internal links or duplicate URLs. Warns on SEO
+ * problems (lib/seo.js: missing, overlong or duplicate titles and descriptions,
+ * broken social images or canonicals), missing alt text and thin pages.
+ * npm run seo shows the full audit, with tips and search-result previews.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { basePath, paths, loadSite } from './lib/content.js';
+import { ROOT, basePath, paths, loadSite } from './lib/content.js';
+import { auditPages } from './lib/seo.js';
 
 if (!fs.existsSync(paths.dist)) {
   console.error('\n  dist/ does not exist. Run the build first.\n');
@@ -70,10 +73,12 @@ for (const entry of all) {
 }
 
 /* SEO and content hygiene */
+for (const { page, issues } of auditPages(all, site, ROOT)) {
+  for (const issue of issues) {
+    if (issue.level === 'error' || (issue.level === 'warning' && issue.field !== 'body')) warnings.push(`${page.url}: ${issue.message}`);
+  }
+}
 for (const entry of all) {
-  if (!entry.description) warnings.push(`${entry.url}: no description`);
-  else if (entry.description.length > 175) warnings.push(`${entry.url}: description is ${entry.description.length} chars`);
-  if (entry.title.length > 65) warnings.push(`${entry.url}: title is ${entry.title.length} chars`);
   if (entry.collection === 'blog' && !entry.date) errors.push(`${entry.sourceFile}: blog post without a date`);
   if (entry.body.trim().length < 120 && entry.collection !== 'pages') {
     warnings.push(`${entry.url}: very little body content`);

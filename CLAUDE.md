@@ -57,6 +57,13 @@ npm run page:edit -- <page> --from-html=<file.html> --markdown ["<direction>"]  
 npm run md:edit -- <file.md> "<instruction>"       # edit a markdown file outside content/ with Claude
 npm run md:edit:preview -- <file.md> "<instruction>" # same, print only, write nothing
 npm run md:edit:list                               # list the markdown files md:edit can change
+npm run seo                                        # SEO audit of every page: score, issues (add --preview for search results)
+npm run seo -- <page>                              # one page, shown as a Google result
+npm run seo -- <page> --title="…" --description="…" --keyword="…"  # set a page's SEO fields by hand
+npm run seo:claude -- <page> ["<direction>"]       # Claude writes the title, description and keyphrase
+npm run seo:claude:preview -- <page>               # same, print only, write nothing
+npm run seo:claude -- --all ["<direction>"]        # every page without its own SEO title or description (--force: all)
+npm run seo:report                                 # seo-report.html (gitignored): every page as a search result
 ```
 
 There is no separate lint or test suite — `npm run check` (build + link/URL/SEO
@@ -84,7 +91,8 @@ page; both always run over the whole site.
    makes `{{ site.contact.email }}` and `{{> stats }}` work inside content
    files — then through `lib/markdown.js`, then through the layout named in
    frontmatter, then wrapped in `templates/partials/base.html` together with
-   JSON-LD from `lib/schema.js`.
+   JSON-LD from `lib/schema.js` and `page.seo` (the title, description,
+   canonical, robots and social tags, from `lib/seo.js`).
 4. After all pages are written, `build.js` generates `sitemap.xml`, `rss.xml`,
    `robots.txt`, `search-index.json` and `_redirects` (from
    `content/data/redirects.json`), then copies `assets/` and any `static/` into
@@ -105,8 +113,8 @@ page; both always run over the whole site.
    copy published on github.io never claims the domain.
 6. `scripts/check.js` reloads the same content model, walks the built `dist/`
    tree, and errors on duplicate URLs or internal links/images pointing at
-   files that don't exist; it warns on missing or overlong SEO fields, missing
-   `alt` text and thin body content.
+   files that don't exist; it warns on SEO problems (the errors and warnings
+   of `lib/seo.js`'s audit), missing `alt` text and thin body content.
 
 Navigation never links to a page the site doesn't have. `loadSite` drops header,
 footer and legal links (and the header button) whose internal URL isn't a page,
@@ -169,7 +177,8 @@ the search index all update on the next build. Nothing else needs touching.
 | Homepage sections — which appear, in what order, their copy | `content/data/home.json` (each entry names a `partial` from `templates/partials/`; add a new partial and reference it here to add a new kind of section, no layout edit needed) |
 | Colours, type scale, fonts | `styles/main.css` → `@theme` |
 | A repeated visual pattern | `styles/main.css` → `@layer components` (read the guidelines first) |
-| Page shell, meta tags, schema | `templates/partials/base.html`, `scripts/lib/schema.js` |
+| Page shell, meta tags, schema | `templates/partials/base.html` (renders `page.seo`), `scripts/lib/seo.js`, `scripts/lib/schema.js` |
+| Title format, X handle, search console verification | `site.config.json` → `seo` (see "Search engine optimisation" below) |
 | A page type's structure | `templates/layouts/<layout>.html` |
 
 **Add a new content type** (for example, `events`)
@@ -255,7 +264,8 @@ describes first. The target must
 already exist under `content/`, because it decides where the page lives. The
 replacement is complete: before Claude sees the page, `replacedPage` cuts its
 frontmatter down to `REPLACE_KEEPS` (the locked fields plus `title`,
-`description`, `noindex`, `navHidden`, `author`, `category`, `tags`) and drops
+`description`, `noindex`, `navHidden`, `author`, `category`, `tags`,
+`focusKeyword`, `canonical`) and drops
 its body, so the old hero, highlights, FAQ topics, call to action and copy
 can't carry over. The old description always goes, and the old title goes
 when the HTML has a `<title>` or `<h1>`. A meta description of at most 160
@@ -540,6 +550,48 @@ repo's default branch into older copies. So `edit-md.js` imports only `ROOT`
 and `readJson` from `lib/content.js` plus `lib/schedule-jobs.js`, and keeps its
 own API call and site-tree parser: don't make it import anything newer.
 
+**Search engine optimisation**
+
+Every page's SEO is optional flat frontmatter (the parser has no nested maps):
+`metaTitle` (the whole `<title>`, used as-is), `metaDescription`,
+`focusKeyword` (the search phrase it's for; only the audit reads it),
+`ogImage`, `ogImageAlt`, `canonical` (absolute, or root-relative) and
+`noindex`. Without them a page gets the site's defaults:
+`site.config.json` → `seo` → `titleTemplate` (`{title} | {site}`; also
+`{name}` and `{tagline}`) or `homeTitle` for `/`, its `description` (or
+the start of its body, `descriptionAuto` from `lib/content.js`), and its
+`image` or `brand.defaultOgImage`. `seo` also holds `twitterHandle`,
+`googleVerification` and `bingVerification`, and every key is optional.
+
+`scripts/lib/seo.js` is the one place these rules live. `pageSeo()` gives
+`build.js` the `page.seo` that `base.html` renders (title, description,
+canonical, robots, Open Graph, Twitter, `article:published_time`), and a page
+whose canonical points elsewhere is left out of the sitemap. `auditPages()`
+scores every page out of 100 from its issues (`error` −25, `warning` −10,
+`tip` −3, `note` 0): a missing or placeholder description, a title over
+600px or description over 920px (measured with an Arial width table at 20px
+and 13px, as search result previews do), duplicates, a keyphrase missing from
+the title, description, heading or introduction, a social image that doesn't
+exist or is an SVG, a bad canonical, images without alt text, thin pages.
+`check.js` prints its errors and warnings. `setFrontmatterFields()` writes
+fields in place, adding new ones after `description` and keeping line
+endings; an empty value removes the field.
+
+`scripts/seo.js` is the command line for all of it (usage in its header).
+`--claude` sends Claude the page, the other pages' titles and descriptions,
+and the knowledge files, asks for JSON (`metaTitle`, `metaDescription`,
+`focusKeyword`), measures the reply like the audit does and asks for
+corrections up to 3 times, keeping the best attempt. A page's own keyphrase is
+kept unless a direction is given. Claude never sets the image, canonical or
+noindex. A written change is logged as `seo:claude` with the new values as its
+summary points (no extra request). `--all` reloads the site after each page,
+so later pages don't repeat earlier ones. `--report=<file>` saves the audit as
+JSON after any change and `--dry-run --proposal-out=<file>` saves a one-page
+proposal (`"mode": "seo"`, the whole file in `content`, the fields in
+`seo`): the Twinstack web app's SEO tab reads both, so keep their shapes in
+step with its `server/src/seo.js`, and its `client/src/lib/seo.ts` copies the
+width table and limits.
+
 **Scaffold the whole page tree, or schedule pages for later**
 
 `scripts/site-tree.md` is an indented bullet list of every page path the site
@@ -618,7 +670,8 @@ own.
 
 Shared by every type: `title`, `description`, `slug`, `url`, `layout`, `order`,
 `draft`, `noindex`, `navHidden`, `image`, `kicker`, `heroHeading`, `heroText`,
-`faqTopics`, `showFaq`, `ctaHeading`, `ctaText`, `hideCta`.
+`faqTopics`, `showFaq`, `ctaHeading`, `ctaText`, `hideCta`, and the SEO fields
+`metaTitle`, `metaDescription`, `focusKeyword`, `ogImage`, `ogImageAlt`, `canonical`.
 
 - **products** — `tagline`, `badge`, `price`, `logo`, `installUrl`,
   `highlights[]`, `facts[{label,value,note}]`, `capabilities[{title,body}]`

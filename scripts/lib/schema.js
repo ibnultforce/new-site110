@@ -18,8 +18,8 @@ export function buildJsonLd({ site, page, faqItems = [] }) {
     '@type': 'WebPage',
     '@id': `${page.absoluteUrl}#webpage`,
     url: page.absoluteUrl,
-    name: page.title,
-    description: page.description,
+    name: page.seo?.title || page.title,
+    description: page.seo?.description || page.description,
     isPartOf: { '@id': `${site.url}/#organization` },
   }];
 

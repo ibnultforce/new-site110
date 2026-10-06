@@ -118,6 +118,8 @@ function loadEntry({ file, dir, collection, config, site }) {
     layout: data.layout || config.layout,
     title: data.title || slug,
     description: data.description || excerpt(body),
+    // The description came from the body's start (lib/seo.js asks for a real one).
+    descriptionAuto: !data.description,
     excerpt: data.excerpt || excerpt(body, 190),
     body,
     content: rendered.html,
