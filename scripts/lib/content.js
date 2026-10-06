@@ -96,8 +96,17 @@ export function outputPathFor(url) {
   return `${url.replace(/^\/|\/$/g, '')}/index.html`;
 }
 
-function loadEntry({ file, dir, collection, config, site }) {
-  const raw = fs.readFileSync(path.join(dir, file), 'utf8');
+/**
+ * A file's text, or its proposed text when `overrides` (repo-relative path -> text) has one:
+ * build.js --proposal builds the site as it would be with a Claude proposal applied.
+ */
+function readText(file, overrides) {
+  const rel = path.relative(ROOT, file).split(path.sep).join('/');
+  return overrides?.has(rel) ? overrides.get(rel) : fs.readFileSync(file, 'utf8');
+}
+
+function loadEntry({ file, dir, collection, config, site, overrides }) {
+  const raw = readText(path.join(dir, file), overrides);
   const { data, body } = parseFrontmatter(raw);
   const dirPart = path.dirname(file); // "." for a top-level file
   const baseSlug = path
@@ -239,7 +248,7 @@ export function basePath() {
   return (process.env.BASE_PATH || '').replace(/\/+$/, '');
 }
 
-export function loadSite({ includeDrafts = false, includeFuture = false } = {}) {
+export function loadSite({ includeDrafts = false, includeFuture = false, overrides = null } = {}) {
   const site = readJson(path.join(ROOT, 'site.config.json'));
   // The deploy workflow passes the address it publishes to (a github.io URL
   // until a custom domain is set), for canonical links, the sitemap and RSS.
@@ -251,7 +260,7 @@ export function loadSite({ includeDrafts = false, includeFuture = false } = {}) 
   const data = {};
   if (fs.existsSync(paths.data)) {
     for (const file of fs.readdirSync(paths.data).filter((f) => f.endsWith('.json'))) {
-      data[file.replace(/\.json$/, '')] = readJson(path.join(paths.data, file));
+      data[file.replace(/\.json$/, '')] = JSON.parse(readText(path.join(paths.data, file), overrides));
     }
   }
 
@@ -259,7 +268,7 @@ export function loadSite({ includeDrafts = false, includeFuture = false } = {}) 
   for (const [name, config] of Object.entries(site.collections)) {
     const dir = path.join(ROOT, config.dir);
     let entries = listMarkdown(dir).map((file) =>
-      loadEntry({ file, dir, collection: name, config, site }),
+      loadEntry({ file, dir, collection: name, config, site, overrides }),
     );
 
     if (!includeDrafts) entries = entries.filter((entry) => !entry.draft);

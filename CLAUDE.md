@@ -116,6 +116,16 @@ page; both always run over the whole site.
    files that don't exist; it warns on SEO problems (the errors and warnings
    of `lib/seo.js`'s audit), missing `alt` text and thin body content.
 
+`node scripts/build.js --proposal=<file.json> --out=<dir>` builds the whole site as it would be with a
+proposal from `edit-page.js --proposal-out` applied, without touching any file: `loadSite({ overrides })`
+reads the proposed page and `content/data/*.json` texts instead of the files, `assets/` files in the
+proposal (a converted page's CSS and scripts) are written over the copied ones, and the CSS is compiled
+from a copy of `styles/main.css` (relative paths made absolute) with the proposed files added as a
+Tailwind `@source`, so classes only the proposal uses exist. Drafts are included. It writes
+`<out>/.proposal.json` (`file`, the page's `url`, the proposal's `createdAt`), which the Twinstack web
+app reads to show the page; its working files are dot-files beside the site. `--out` must be inside the
+repo. The web app detects support by the literal `--proposal=` in `build.js`.
+
 Navigation never links to a page the site doesn't have. `loadSite` drops header,
 footer and legal links (and the header button) whose internal URL isn't a page,
 a generated file or a file in `assets/`/`static/` (`pageExists`); a dropdown

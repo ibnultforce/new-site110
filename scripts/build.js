@@ -18,8 +18,21 @@ import { buildJsonLd } from './lib/schema.js';
 import { pageSeo, seoSettings } from './lib/seo.js';
 import { buildCss } from './lib/css.js';
 
-const args = new Set(process.argv.slice(2));
-const includeDrafts = args.has('--drafts') || args.has('--dev');
+const argv = process.argv.slice(2);
+const args = new Set(argv);
+const option = (name) => argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+
+// --proposal=<file.json> builds the site as it would be with a Claude proposal applied
+// (edit-page.js --proposal-out: { file, content, files: [{ file, content }] }), without
+// touching the files, into --out=<dir>. Drafts are included, so a draft page can be seen.
+const proposalOption = option('proposal');
+const outOption = option('out');
+const includeDrafts = args.has('--drafts') || args.has('--dev') || Boolean(proposalOption);
+const outDir = outOption ? path.resolve(ROOT, outOption) : paths.dist;
+if (!outDir.startsWith(ROOT + path.sep)) {
+  console.error(`\n  --out must be a folder inside the repository, not ${outOption}.\n`);
+  process.exit(1);
+}
 
 // Every root-relative href/src gets this prefix: /dist in development (the
 // site is often previewed from a server that serves this whole project
@@ -71,16 +84,58 @@ function copyDir(from, to, transform) {
 }
 
 function write(file, contents) {
-  const target = path.join(paths.dist, file);
+  const target = path.join(outDir, file);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, contents);
+}
+
+/**
+ * The proposal --proposal names: `overrides` (content/ pages and data files, read instead of the
+ * files on disk) and `assets` (a converted page's own CSS and scripts, written over the copied
+ * assets/). Anything else in it (a global stylesheet under styles/) doesn't change what's built.
+ */
+function loadProposal(file) {
+  const proposal = JSON.parse(fs.readFileSync(path.resolve(ROOT, file), 'utf8'));
+  const overrides = new Map();
+  const assets = [];
+  const add = (rel, content) => {
+    if (typeof rel !== 'string' || typeof content !== 'string' || rel.split('/').some((seg) => seg === '..' || !seg)) return;
+    if (/^content\/.+\.(md|json)$/.test(rel)) overrides.set(rel, content);
+    else if (rel.startsWith('assets/')) assets.push({ rel, content });
+  };
+  add(proposal.file, proposal.content);
+  for (const extra of Array.isArray(proposal.files) ? proposal.files : []) add(extra?.file, extra?.content);
+  if (!overrides.has(proposal.file)) throw new Error(`${file} isn't a proposal for a page under content/.`);
+  return { proposal, overrides, assets };
+}
+
+/**
+ * The CSS for a proposal build: styles/main.css with its relative paths made absolute and the
+ * proposed files added to Tailwind's sources, so classes only the proposal uses are compiled.
+ * Written inside the output folder (node_modules is still found by walking up from there).
+ */
+function proposalCss(overrides) {
+  const sources = path.join(outDir, '.proposal-sources');
+  for (const [rel, content] of overrides) {
+    fs.mkdirSync(path.dirname(path.join(sources, rel)), { recursive: true });
+    fs.writeFileSync(path.join(sources, rel), content);
+  }
+  const stylesDir = path.join(ROOT, 'styles');
+  const absolute = (rel) => path.resolve(stylesDir, rel).split(path.sep).join('/');
+  const css = fs
+    .readFileSync(path.join(stylesDir, 'main.css'), 'utf8')
+    .replace(/(@(?:source|import|plugin|reference)\s+)(["'])(\.\.?\/[^"']*)\2/g, (_, at, quote, rel) => `${at}${quote}${absolute(rel)}${quote}`);
+  const input = path.join(outDir, '.proposal-input.css');
+  fs.writeFileSync(input, `${css}\n@source "${sources.split(path.sep).join('/')}";\n`);
+  return { input, output: path.join(outDir, '.proposal-main.css') };
 }
 
 /* --------------------------------------------------------------------- build */
 
 function build() {
   const started = Date.now();
-  const model = loadSite({ includeDrafts, includeFuture: includeDrafts });
+  const pending = proposalOption ? loadProposal(proposalOption) : null;
+  const model = loadSite({ includeDrafts, includeFuture: includeDrafts, overrides: pending?.overrides });
   const { site, data, collections, nav, all, pageExists } = model;
   // Site-wide SEO settings with their defaults, for base.html (verification tags, X handle).
   site.seo = seoSettings(site);
@@ -95,8 +150,8 @@ function build() {
   const engine = new TemplateEngine();
   loadTemplates(engine);
 
-  fs.rmSync(paths.dist, { recursive: true, force: true });
-  fs.mkdirSync(paths.dist, { recursive: true });
+  fs.rmSync(outDir, { recursive: true, force: true });
+  fs.mkdirSync(outDir, { recursive: true });
 
   const written = [];
   const searchIndex = [];
@@ -239,10 +294,24 @@ function build() {
 
   // Tailwind scans the templates, so CSS is compiled after pages are rendered
   // and before assets are copied into dist/.
-  const css = buildCss({ minify: !includeDrafts });
+  // A proposal build compiles into its own folder, leaving assets/css/main.css alone.
+  const cssFiles = pending ? proposalCss(pending.overrides) : null;
+  const css = buildCss({ minify: !includeDrafts, ...cssFiles });
 
-  const assetCount = copyDir(paths.assets, path.join(paths.dist, 'assets'));
-  const staticCount = copyDir(path.join(ROOT, 'static'), paths.dist, withBase);
+  const assetCount = copyDir(paths.assets, path.join(outDir, 'assets'));
+  const staticCount = copyDir(path.join(ROOT, 'static'), outDir, withBase);
+
+  if (pending) {
+    // An older lib/css.js ignores input/output and writes assets/css/main.css, copied above.
+    if (fs.existsSync(cssFiles.output)) {
+      fs.mkdirSync(path.join(outDir, 'assets/css'), { recursive: true });
+      fs.renameSync(cssFiles.output, path.join(outDir, 'assets/css/main.css'));
+    }
+    for (const { rel, content } of pending.assets) write(rel, content);
+    // Where the proposed page is, for whoever shows it (the Twinstack web app's preview).
+    const page = all.find((entry) => entry.sourceFile.split(path.sep).join('/') === pending.proposal.file);
+    write('.proposal.json', `${JSON.stringify({ file: pending.proposal.file, url: page?.url ?? null, createdAt: pending.proposal.createdAt ?? null }, null, 2)}\n`);
+  }
 
   /* --------------------------------------------------------------- report */
 
@@ -252,7 +321,7 @@ function build() {
   }, {});
 
   console.log(`\n  ${site.name} — build complete in ${Date.now() - started}ms`);
-  console.log(`  ${written.length} pages, ${assetCount + staticCount} static files, ${(css.bytes / 1024).toFixed(1)}kB CSS -> dist/\n`);
+  console.log(`  ${written.length} pages, ${assetCount + staticCount} static files, ${(css.bytes / 1024).toFixed(1)}kB CSS -> ${path.relative(ROOT, outDir).split(path.sep).join('/')}/\n`);
   for (const [name, count] of Object.entries(byCollection).sort()) {
     console.log(`    ${String(count).padStart(3)}  ${name}`);
   }

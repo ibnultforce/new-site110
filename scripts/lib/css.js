@@ -16,14 +16,15 @@ const INPUT = path.join(ROOT, 'styles/main.css');
 const OUTPUT = path.join(ROOT, 'assets/css/main.css');
 const CLI = path.join(ROOT, 'node_modules/@tailwindcss/cli/dist/index.mjs');
 
-export function buildCss({ minify = true, silent = true } = {}) {
+/** `input`/`output` replace styles/main.css and assets/css/main.css (build.js --proposal uses its own). */
+export function buildCss({ minify = true, silent = true, input = INPUT, output = OUTPUT } = {}) {
   if (!fs.existsSync(CLI)) {
     throw new Error(
       'Tailwind CLI not found. Run "npm install" first — this project needs its devDependencies to build CSS.',
     );
   }
 
-  const args = [CLI, '--input', INPUT, '--output', OUTPUT];
+  const args = [CLI, '--input', input, '--output', output];
   if (minify) args.push('--minify');
 
   const result = spawnSync(process.execPath, args, {
@@ -36,5 +37,5 @@ export function buildCss({ minify = true, silent = true } = {}) {
     throw new Error(`Tailwind build failed:\n${detail}`);
   }
 
-  return { output: OUTPUT, bytes: fs.statSync(OUTPUT).size };
+  return { output, bytes: fs.statSync(output).size };
 }
