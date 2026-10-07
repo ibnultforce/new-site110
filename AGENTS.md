@@ -24,8 +24,12 @@ content and JSON data are rendered through logic-light HTML templates into
 - Never edit generated `dist/` or `assets/css/main.css`.
 - Preserve the existing British spelling, sentence-case headings, plain tone
   and evidence-based claims. Do not invent facts or statistics.
-- Prefer the existing template, partial and Tailwind token patterns over new
+- Prefer the existing Tailwind token and component patterns over new
   abstractions or stock Tailwind colours.
+- Every design must be responsive: mobile first, readable at 360px wide with
+  no horizontal scroll, columns only from `md:`/`lg:` up, no fixed pixel widths.
+  A page's body is the whole page (the only layout shows just the body), so it
+  carries its own `<h1>` and sections. See `scripts/lib/design-rules.js`.
 
 ## Validation
 

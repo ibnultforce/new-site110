@@ -2,85 +2,45 @@
  * Frontmatter + body skeletons for each collection type. Shared by
  * scripts/new.js (one page at a time) and scripts/scaffold-tree.js (a whole
  * tree at once) so both produce identical, correctly-shaped starting files.
+ *
+ * Every layout shows only the page's body (templates/layouts/page.html), so
+ * each body is a small responsive starting page in the site's design that
+ * Claude (or the author) replaces. The heading reads {{ page.title }}, so a
+ * title with "&" or "<" stays valid HTML. Keep the HTML blocks free of blank
+ * lines inside them, as the markdown renderer's raw blocks expect.
  */
 
-/** type is one of: pages, products, services, blog, caseStudies */
-export function scaffoldBody(type, { title, today, draft = false, defaultAuthor = '' }) {
+const intro = (lines) => `<section class="section-y">
+  <div class="wrap">
+${lines.map((line) => `    ${line}`).join('\n')}
+  </div>
+</section>
+`;
+
+/** type is one of: pages, products, services, blog, caseStudies, listing (a collection's listing page; pass `collection`) */
+export function scaffoldBody(type, { title, today, draft = false, defaultAuthor = '', collection = '' }) {
   const draftLine = draft ? 'draft: true\n' : '';
+  const page = (fields) => `---
+title: ${title}
+${fields}description: Under 160 characters, written for search results.
+${draftLine}---
+
+`;
+  const heading = [
+    '<h1 class="text-hero">{{ page.title }}</h1>',
+    '<p class="mt-5 max-w-[54ch] text-lede text-ink-2">One sentence on what this page is for.</p>',
+  ];
 
   const TEMPLATES = {
-    pages: `---
-title: ${title}
-order: 50
-kicker:
-heroHeading: ${title}
-heroText: One sentence on what this page is for.
-description: Under 160 characters, written for search results.
-${draftLine}---
+    pages: () => page('order: 50\n') + intro(heading),
 
-## First section
+    products: () => page('order: 50\n') + intro(heading),
 
-Replace this with the real content.
-`,
+    services: () => page('order: 50\n') + intro(heading),
 
-    products: `---
-title: ${title}
-tagline: One line on what it does, in the user's words.
-order: 50
-badge:
-price:
-logo:
-installUrl:
-heroHeading: ${title}
-description: Under 160 characters, written for search results.
-highlights:
-  - First thing it does
-  - Second thing it does
-  - Third thing it does
-facts:
-  - label: Time to an answer
-    value:
-    note:
-  - label: Price
-    value:
-capabilities:
-  - title: Capability one
-    body: What it does and why that matters.
-faqTopics: [products]
-${draftLine}---
+    caseStudies: () => page('order: 50\n') + intro(heading),
 
-## The problem it removes
-
-## How it works
-
-## Who it is for
-`,
-
-    services: `---
-title: ${title}
-tagline: One line on the outcome, not the activity.
-order: 50
-description: Under 160 characters, written for search results.
-highlights:
-  - Headline deliverable
-  - Second deliverable
-  - Third deliverable
-deliverables:
-  - What the client actually receives
-idealFor:
-  - The situation this fits
-steps:
-  - title: First stage
-    body: What happens and what it produces.
-faqTopics: [services]
-${draftLine}---
-
-## What this involves
-
-## How we price it
-`,
-
-    blog: `---
+    blog: () => `---
 title: ${title}
 date: ${today}
 category:
@@ -91,34 +51,32 @@ description: Under 160 characters, written for search results.
 excerpt: One or two sentences that make someone open the post.
 ${draftLine}---
 
-Opening paragraph: the specific situation the reader is in.
-
-## First section
+<article class="section-y">
+  <div class="wrap-narrow">
+    <p class="text-sm text-muted">{{ page.dateFormatted }}{{# if page.author }} · {{ page.author }}{{/ if }}</p>
+    <h1 class="mt-2 text-hero">{{ page.title }}</h1>
+    <div class="prose-site mt-8">
+      <p>Opening paragraph: the specific situation the reader is in.</p>
+    </div>
+  </div>
+</article>
 `,
 
-    caseStudies: `---
-title: ${title}
-tagline: One line on what changed for the client.
-category:
-order: 50
-client:
-industry:
-duration:
-stack: []
-externalUrl:
-description: Under 160 characters, written for search results.
-results:
-  - value:
-    label:
-${draftLine}---
-
-## The situation
-
-## What we did
-
-## The result
-`,
+    listing: () =>
+      page('order: 50\n') +
+      intro([
+        ...heading,
+        '<div class="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">',
+        `  {{# each ${collection} }}`,
+        '  <a href="{{ url }}" class="card block no-underline">',
+        '    {{# if dateFormatted }}<p class="text-sm text-muted">{{ dateFormatted }}</p>{{/ if }}',
+        '    <h2 class="text-h3 text-ink">{{ title }}</h2>',
+        '    {{# if description }}<p class="mt-2 text-muted">{{ description }}</p>{{/ if }}',
+        '  </a>',
+        '  {{/ each }}',
+        '</div>',
+      ]),
   };
 
-  return TEMPLATES[type];
+  return TEMPLATES[type]?.();
 }

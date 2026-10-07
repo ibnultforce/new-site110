@@ -21,8 +21,8 @@ requirements — no framework, no bundler.
 site.config.json     brand, contact, collections, deploy, automation settings
 content/data/*.json  navigation, shared facts, FAQ, redirects, blog queue
 content/<type>/*.md  the pages themselves
-templates/layouts/   one file per page type
-templates/partials/  shared fragments (header, footer, cards, CTA)
+templates/layouts/   page.html (blank: shows only the page's body) and imported.html
+templates/partials/  the page shell (base.html), header and footer
 styles/main.css      Tailwind source: theme tokens, utilities, component layer
 assets/              compiled CSS, JS, images — copied to dist/assets
 scripts/             build, dev server, checker, scaffolder, blog writer, page editor
@@ -154,14 +154,23 @@ build time.
 3. **Never hand-list content.** Product grids, service menus, blog listings and
    the footer are generated from collections. Adding a markdown file is the
    whole job.
-4. **Run `npm run check` before saying you are done.** It builds and then fails
-   on broken internal links and duplicate URLs.5. **Markdown bodies are templated first, then rendered.** `{{ site.contact.email }}`
+4. **Pages design themselves, and responsively.** The only layout,
+   `templates/layouts/page.html`, shows the page's body between the header and
+   footer, nothing else. A page's body is the whole page: its `<h1>`, sections
+   and any collection loops, written as HTML in the site's design
+   (`scripts/lib/scaffold-templates.js` has the starting bodies). Everything
+   written must work from 360px wide up: mobile first, columns only from `md:`
+   or `lg:` up, no fixed pixel widths. `scripts/lib/design-rules.js` holds
+   these rules, and every Claude request that writes a page gets them.
+5. **Run `npm run check` before saying you are done.** It builds and then fails
+   on broken internal links and duplicate URLs.
+6. **Markdown bodies are templated first, then rendered.** `{{ site.contact.email }}`
    and `{{> stats }}` work inside content files. Escape literal braces if a post
    needs to show template syntax.
-6. **Do not invent facts.** Statistics, client names, release numbers and
+7. **Do not invent facts.** Statistics, client names, release numbers and
    claims about how a product or platform behaves need a source. If unsure, describe the shape of the
    thing rather than quantifying it.
-7. **Read `knowledge/notes.md` and `knowledge/work-log.md` before changing
+8. **Read `knowledge/notes.md` and `knowledge/work-log.md` before changing
    content.** They hold the owner's standing instructions and what earlier
    Claude runs changed. Follow the notes; treat the log as history, not fact.
 
@@ -191,12 +200,12 @@ the search index all update on the next build. Nothing else needs touching.
 | A repeated visual pattern | `styles/main.css` → `@layer components` (read the guidelines first) |
 | Page shell, meta tags, schema | `templates/partials/base.html` (renders `page.seo`), `scripts/lib/seo.js`, `scripts/lib/schema.js` |
 | Title format, X handle, search console verification | `site.config.json` → `seo` (see "Search engine optimisation" below) |
-| A page type's structure | `templates/layouts/<layout>.html` |
+| A page's structure | The page's own body. Old copies' per-type layouts in `templates/layouts/` |
 
 **Add a new content type** (for example, `events`)
 
 1. Add an entry to `site.config.json` → `collections`.
-2. Create `templates/layouts/event.html` and, if it needs one, a list layout.
+2. Give it `"layout": "page"` (and `"layout": "page"` in its `index`). Its listing page loops the collection in its body, as `scaffoldBody('listing')` writes it. `npm run nav:add` does all of this.
 3. Create `content/events/` and add markdown.
 4. Optionally add a `type: "collection"` entry to `navigation.json`.
 
@@ -680,18 +689,19 @@ own.
 ## Frontmatter reference
 
 Shared by every type: `title`, `description`, `slug`, `url`, `layout`, `order`,
-`draft`, `noindex`, `navHidden`, `image`, `kicker`, `heroHeading`, `heroText`,
-`faqTopics`, `showFaq`, `ctaHeading`, `ctaText`, `hideCta`, and the SEO fields
-`metaTitle`, `metaDescription`, `focusKeyword`, `ogImage`, `ogImageAlt`, `canonical`.
+`draft`, `noindex`, `navHidden`, `image`, `faqTopics`, `showFaq` (FAQ entries go
+into the page's structured data, and a body can loop `faqItems`), and the SEO
+fields `metaTitle`, `metaDescription`, `focusKeyword`, `ogImage`, `ogImageAlt`,
+`canonical`. Any other field is the page's own: its body can read it as
+`{{ page.<field> }}`, and listings read `tagline`, `excerpt` and `image`.
 
-- **products** — `tagline`, `badge`, `price`, `logo`, `installUrl`,
-  `highlights[]`, `facts[{label,value,note}]`, `capabilities[{title,body}]`
-- **services** — `tagline`, `highlights[]`, `deliverables[]`, `idealFor[]`,
-  `steps[{title,body}]`
 - **blog** — `date`, `category`, `author`, `tags[]`, `relatedProduct`, `excerpt`,
   `generated`
-- **case-studies** — `tagline`, `category`, `client`, `industry`, `duration`,
-  `stack[]`, `externalUrl`, `results[{value,label}]`
+
+Older copies' layouts read more (`heroHeading`, `heroText`, `kicker`,
+`ctaHeading`, a product's `highlights[]`…). The page editor's prompts check what
+the page's layout reads (`layoutShowsTitle`, `layoutSection` in `edit-page.js`),
+so they suit both.
 
 ## CSS
 

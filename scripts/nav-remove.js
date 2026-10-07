@@ -3,12 +3,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, readJson } from './lib/content.js';
-import { slugify, itemLayoutTemplate, listLayoutTemplate, sampleEntryTemplate, indexPageTemplate } from './lib/nav-scaffold.js';
+import { sampleEntryTemplate, indexPageTemplate } from './lib/nav-scaffold.js';
 
 const [, , identifier, ...extra] = process.argv;
 const navigationPath = path.join(ROOT, 'content/data/navigation.json');
 const sitePath = path.join(ROOT, 'site.config.json');
-const layoutsPath = path.join(ROOT, 'templates/layouts');
 const contentPath = path.join(ROOT, 'content');
 const pagesPath = path.join(ROOT, 'content/pages');
 
@@ -60,8 +59,8 @@ if (removed.type !== 'collection') {
 }
 
 // This nav item pointed at a collection created by nav:add. Only tear down
-// the rest of the scaffold (layouts, content dir, index page, site.config.json
-// entry) when every generated file for it still matches exactly what was
+// the rest of the scaffold (content dir, index page, site.config.json
+// entry; layouts are shared, so never) when every generated file for it still matches exactly what was
 // created (nothing hand-edited, no real content added) and nothing else
 // still references the collection. Otherwise leave the whole thing alone.
 const name = removed.collection;
@@ -71,7 +70,7 @@ const stillReferenced =
   (navigation.footer || []).some((column) => (column.links || []).some((link) => link.collection === name));
 
 if (stillReferenced) {
-  console.log(`  Kept content/${name}/ and its layouts: still referenced elsewhere in navigation.json.\n`);
+  console.log(`  Kept content/${name}/ still referenced elsewhere in navigation.json.\n`);
   process.exit(0);
 }
 
@@ -83,9 +82,6 @@ if (!config) {
   process.exit(0);
 }
 
-const listLayoutName = `list-${slugify(name)}`;
-const itemLayoutPath = path.join(layoutsPath, `${config.layout}.html`);
-const listLayoutPath = path.join(layoutsPath, `${listLayoutName}.html`);
 const dir = path.join(contentPath, name);
 const slug = config.index?.url ? config.index.url.replace(/^\/|\/$/g, '') : null;
 const indexPagePath = slug ? path.join(pagesPath, `${slug}.md`) : null;
@@ -109,13 +105,11 @@ if (fs.existsSync(dir)) {
 
 const scaffoldUntouched =
   contentUntouched &&
-  matchesOrAbsent(itemLayoutPath, itemLayoutTemplate(removed.label)) &&
-  matchesOrAbsent(listLayoutPath, listLayoutTemplate(name, removed.label)) &&
-  (!indexPagePath || matchesOrAbsent(indexPagePath, indexPageTemplate(removed.label, slug, listLayoutName)));
+  (!indexPagePath || matchesOrAbsent(indexPagePath, indexPageTemplate(removed.label, slug, name)));
 
 if (!scaffoldUntouched) {
   console.log(
-    `\n  Kept content/${name}/, its layouts and site.config.json -> collections.${name}: something was customised since creation.\n`,
+    `\n  Kept content/${name}/ and site.config.json -> collections.${name}: something was customised since creation.\n`,
   );
   process.exit(0);
 }
@@ -127,8 +121,6 @@ function removeIfExists(filePath) {
   removedPaths.push(path.relative(ROOT, filePath));
 }
 
-removeIfExists(itemLayoutPath);
-removeIfExists(listLayoutPath);
 if (indexPagePath) removeIfExists(indexPagePath);
 if (sampleFile) removeIfExists(sampleFile);
 if (fs.existsSync(dir)) {

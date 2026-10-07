@@ -95,6 +95,7 @@ import { TemplateEngine } from './lib/template.js';
 import { renderCheck, scriptCheck } from './lib/render-check.js';
 import { bannedPhraseWarnings, requestClaude, resolveImages, stripFence } from './lib/claude-writer.js';
 import { knowledgePrompt, recordWork, summarizeChange } from './lib/knowledge.js';
+import { BLANK_LAYOUT_RULES, DESIGN_RULES, layoutShowsTitle } from './lib/design-rules.js';
 import {
   MAX_CLEAN_CHARS,
   asRawBlock,
@@ -280,7 +281,6 @@ const HOUSE_RULES = `HOUSE RULES (from CLAUDE.md — follow these exactly)
 - Never hand-list content that a collection already provides (products, services, posts, case studies) — loop over the collection with {{#each}}.
 - Do not invent facts: statistics, client names, release numbers, or claims about how a product or platform behaves need to already be true of the codebase you can see. If unsure, describe the shape of the thing rather than quantifying it.
 - British spelling, sentence case headings, plain verbs. No exclamation marks, no "unlock", "seamless", "game-changing", "dive in".
-- Markdown content files: do not add a leading "# Title" heading — the layout renders the title separately.
 - Utilities belong inline in templates; only touch styles/main.css for tokens or patterns already repeated three or more times elsewhere, and never touch assets/css/main.css (it is compiled output).`;
 
 /** knowledge/ (the owner's notes and the work log) as a prompt section ending in a blank line, or ''. */
@@ -295,7 +295,9 @@ function buildEditPrompts(relFile, instruction, original, images = []) {
   const isContent = relFile.startsWith('content/') && relFile.endsWith('.md');
 
   const contextNote = isContent
-    ? `This file is a markdown content file. Its body is rendered as a template BEFORE markdown conversion, so template syntax works directly in the body. ${contextVariables()}`
+    ? `This file is a markdown content file. Its body is rendered as a template BEFORE markdown conversion, so template syntax works directly in the body. ${contextVariables()}
+
+${bodyRules(layoutFor(relFile, parseFrontmatter(original).data))}`
     : relFile.startsWith('templates/')
       ? `This file is an HTML template rendered with the same template engine as content files. It has no server-side logic beyond the engine's own syntax. ${contextVariables()}`
       : `This is a site-wide config or stylesheet file, not rendered through the template engine.`;
@@ -305,6 +307,8 @@ function buildEditPrompts(relFile, instruction, original, images = []) {
 ${TEMPLATE_SYNTAX}
 
 ${contextNote}
+
+${DESIGN_RULES}
 
 ${HOUSE_RULES}
 - Preserve everything about the file that the instruction doesn't ask you to change: frontmatter fields and their order, unrelated sections, existing classes and structure, indentation style.
@@ -400,6 +404,8 @@ ${sources.dynamic ? `Sections listed in a data file are rendered by the partial 
 - You can't change templates here: they decide what fields exist. If the instruction needs a new kind of section or a layout change, do what the files allow and say nothing about the rest.
 
 ${contextVariables()}
+
+${DESIGN_RULES}
 
 ${HOUSE_RULES}
 - Preserve everything the instruction doesn't ask you to change: fields and their order, unrelated sections, JSON key order and indentation.
@@ -533,11 +539,7 @@ FRONTMATTER
 
 ${FRONTMATTER_SYNTAX}
 
-THE PAGE'S LAYOUT
-This page renders through templates/layouts/${layoutInfo.name}.html. The layout already shows the title and hero above the body and any FAQ, call to action and related items after it, so the body must not repeat them. Fields this layout reads from the frontmatter: ${layoutInfo.fields.length ? layoutInfo.fields.join(', ') : 'none beyond title'}.
------ templates/layouts/${layoutInfo.name}.html -----
-${layoutInfo.source || '(layout file not found)'}
------ end layout -----
+${layoutSection(layoutInfo)}
 
 IMAGES
 ${imageList}
@@ -553,6 +555,8 @@ ${TEMPLATE_SYNTAX}
 
 This file's body is rendered as a template BEFORE markdown conversion, so template syntax works directly in the body. ${contextVariables()}
 
+${DESIGN_RULES}
+
 ${HOUSE_RULES}
 
 ${knowledgeSection()}OUTPUT
@@ -567,6 +571,28 @@ ${original}
 ${instruction ? `Extra direction from the author: ${instruction}` : 'Turn this draft into the finished page.'}`;
 
   return { systemPrompt, userPrompt, isContent: true };
+}
+
+/** What the body must do given its layout: not repeat a title the layout shows, or be the whole page. */
+function bodyRules(layoutInfo) {
+  return layoutShowsTitle(layoutInfo.source)
+    ? '- Do not add a leading "# Title" heading in the body: the layout renders the title separately.'
+    : BLANK_LAYOUT_RULES;
+}
+
+/** The generate and convert prompts' description of the page's layout. */
+function layoutSection(layoutInfo) {
+  const showsTitle = layoutShowsTitle(layoutInfo.source);
+  const intro = showsTitle
+    ? `This page renders through templates/layouts/${layoutInfo.name}.html. The layout already shows the title and hero above the body and any FAQ, call to action and related items after it, so the body must not repeat them. Fields this layout reads from the frontmatter: ${layoutInfo.fields.length ? layoutInfo.fields.join(', ') : 'none beyond title'}.`
+    : `This page renders through templates/layouts/${layoutInfo.name}.html, which shows only the body. Where the instructions above say markdown, headings or fields the layout reads, apply them to the HTML you write instead: "##" sections become <h2> headings inside <section>s, and no frontmatter fields beyond title and description are shown.
+
+${BLANK_LAYOUT_RULES}`;
+  return `THE PAGE'S LAYOUT
+${intro}
+----- templates/layouts/${layoutInfo.name}.html -----
+${layoutInfo.source || '(layout file not found)'}
+----- end layout -----`;
 }
 
 /** The layout a content file renders with: its source and the page.* fields it reads. */
@@ -621,11 +647,7 @@ FRONTMATTER
 
 ${FRONTMATTER_SYNTAX}
 
-THE PAGE'S LAYOUT
-This page renders through templates/layouts/${layoutInfo.name}.html. The layout already shows the title and hero above the body and any FAQ, call to action and related items after it, so the body must not repeat them. Fields this layout reads from the frontmatter: ${layoutInfo.fields.length ? layoutInfo.fields.join(', ') : 'none beyond title'}.
------ templates/layouts/${layoutInfo.name}.html -----
-${layoutInfo.source || '(layout file not found)'}
------ end layout -----
+${layoutSection(layoutInfo)}
 
 IMAGES
 ${imageList}${unavailable}
@@ -636,6 +658,8 @@ ${imageList}${unavailable}
   <figcaption>Caption</figcaption>
 </figure>
 - Leave out purely decorative images (spacers, dividers, icons next to a heading).
+
+${DESIGN_RULES}
 
 ${HOUSE_RULES.replace(/^- (British spelling|Do not invent facts).*\n/gm, '')}
 - Keep the original wording even where it doesn't follow this site's style: the author asked for a conversion. Only follow the style rules for text you have to write yourself (a description, alt text).
@@ -1437,8 +1461,8 @@ function unknownImageProblems(updated, images, source) {
   return problems;
 }
 
-function generateChecks(original, updated, images) {
-  const { problems, warnings } = pageChecks(original, updated);
+function generateChecks(original, updated, images, relFile) {
+  const { problems, warnings } = pageChecks(original, updated, relFile);
 
   // Each image from the draft must survive, and no image may appear from nowhere.
   for (const image of images) {
@@ -1450,8 +1474,8 @@ function generateChecks(original, updated, images) {
   return { problems, warnings };
 }
 
-function convertChecks(original, updated, images, page) {
-  const { problems, warnings } = pageChecks(original, updated);
+function convertChecks(original, updated, images, page, relFile) {
+  const { problems, warnings } = pageChecks(original, updated, relFile);
   problems.push(...replacementProblems(updated, page.source));
 
   // Decorative images may rightly be left out, so a missing one only warns.
@@ -1474,7 +1498,7 @@ function convertChecks(original, updated, images, page) {
 }
 
 /** Checks shared by generated and converted pages: frontmatter, locked fields, links, headings, template syntax. */
-function pageChecks(original, updated) {
+function pageChecks(original, updated, relFile) {
   const problems = [];
   const warnings = [];
   const before = parseFrontmatter(original);
@@ -1502,7 +1526,10 @@ function pageChecks(original, updated) {
     if (!candidates.some((c) => urls.has(c))) warnings.push(`links to a page that doesn't exist yet: ${href}`);
   }
 
-  if (/^#\s/m.test(after.body)) warnings.push('the body has a "# " heading; the layout already shows the title');
+  // Only a layout that draws the title makes a heading of the page's own a repeat.
+  if (/^#\s/m.test(after.body) && (!relFile || layoutShowsTitle(layoutFor(relFile, after.data).source))) {
+    warnings.push('the body has a "# " heading; the layout already shows the title');
+  }
   warnings.push(...bannedPhraseWarnings(after.body));
 
   problems.push(...balanceProblems(updated), ...partialProblems(updated));
@@ -1586,7 +1613,7 @@ function missingContent(page, converted) {
  * attempt if issues remain. The best attempt is kept: fewest problems, then
  * least missing content, later attempts winning ties.
  */
-async function reviewConversion({ reply, buildPrompts, original, htmlPage }) {
+async function reviewConversion({ reply, buildPrompts, original, htmlPage, relFile }) {
   const { systemPrompt, userPrompt } = buildPrompts(reply.images);
   const messages = [{ role: 'user', content: userContent(userPrompt, reply.images) }];
   const checks = [];
@@ -1594,7 +1621,7 @@ async function reviewConversion({ reply, buildPrompts, original, htmlPage }) {
   let current = reply;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const raw = fileFromReply(current.text);
-    const checked = convertChecks(original, raw, reply.images, htmlPage);
+    const checked = convertChecks(original, raw, reply.images, htmlPage, relFile);
     const problems = [...checked.problems];
     if (current.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the file is incomplete`);
     const missing = missingContent(htmlPage, raw);
@@ -1681,7 +1708,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
     }
     const text = fileFromReply(reply.text);
     raw = assembleStyledFile(text, styled);
-    ({ problems, warnings } = pageChecks(base, raw));
+    ({ problems, warnings } = pageChecks(base, raw, relFile));
     problems.push(...replacementProblems(raw, styled.html));
     if (!FRONTMATTER_BLOCK.test(text.trim())) problems.unshift("Claude's reply had no frontmatter block");
     if (reply.stopReason === 'max_tokens') problems.unshift("Claude's reply was cut off, so the frontmatter is incomplete");
@@ -1839,10 +1866,10 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     ({ raw, files: extraFiles, problems, warnings } = readPageEditReply(reply.text, relFile, original, sources));
     if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the files are incomplete`);
   } else if (convert) {
-    ({ raw, problems, warnings, checks } = await reviewConversion({ reply, buildPrompts, original: base, htmlPage }));
+    ({ raw, problems, warnings, checks } = await reviewConversion({ reply, buildPrompts, original: base, htmlPage, relFile }));
     if (dropped.length) warnings.push(`replaced the old page's content: its body and ${dropped.join(', ')}`);
   } else {
-    const checked = generate ? generateChecks(original, raw, reply.images) : editChecks(original, raw, isContent);
+    const checked = generate ? generateChecks(original, raw, reply.images, relFile) : editChecks(original, raw, isContent);
     problems = [...checked.problems];
     ({ warnings } = checked);
     if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the file is incomplete`);

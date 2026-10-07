@@ -5,9 +5,6 @@ import path from 'node:path';
 import { ROOT, readJson, loadSite } from './lib/content.js';
 import {
   slugify,
-  singularize,
-  itemLayoutTemplate,
-  listLayoutTemplate,
   sampleEntryTemplate,
   indexPageTemplate,
 } from './lib/nav-scaffold.js';
@@ -15,7 +12,6 @@ import {
 const [, , label, url, ...args] = process.argv;
 const navigationPath = path.join(ROOT, 'content/data/navigation.json');
 const sitePath = path.join(ROOT, 'site.config.json');
-const layoutsPath = path.join(ROOT, 'templates/layouts');
 const contentPath = path.join(ROOT, 'content');
 const pagesPath = path.join(ROOT, 'content/pages');
 
@@ -37,15 +33,6 @@ function normaliseUrl(value) {
   return value;
 }
 
-function createItemLayout(itemLayoutName, label) {
-  const layoutPath = path.join(layoutsPath, `${itemLayoutName}.html`);
-  if (fs.existsSync(layoutPath)) return { itemLayoutName, created: false };
-
-  fs.mkdirSync(layoutsPath, { recursive: true });
-  fs.writeFileSync(layoutPath, itemLayoutTemplate(label));
-  return { itemLayoutName, created: true };
-}
-
 function createSampleEntry(name, label) {
   const dir = path.join(contentPath, name);
   if (fs.existsSync(dir) && fs.readdirSync(dir).some((f) => f.endsWith('.md'))) {
@@ -58,7 +45,7 @@ function createSampleEntry(name, label) {
   return { file, created: true };
 }
 
-function createIndexPage(navUrl, label, listLayoutName) {
+function createIndexPage(navUrl, label, name) {
   const slug = navUrl.replace(/^\/|\/$/g, '').replace(/\.html$/, '');
   if (!slug || slug.includes('/')) {
     return { file: null, created: false, skipped: true };
@@ -68,11 +55,11 @@ function createIndexPage(navUrl, label, listLayoutName) {
   if (fs.existsSync(file)) return { file, created: false };
 
   fs.mkdirSync(pagesPath, { recursive: true });
-  fs.writeFileSync(file, indexPageTemplate(label, slug, listLayoutName));
+  fs.writeFileSync(file, indexPageTemplate(label, slug, name));
   return { file, created: true };
 }
 
-function addCollectionConfig(name, label, navUrl, itemLayoutName) {
+function addCollectionConfig(name, label, navUrl) {
   const site = readJson(sitePath);
   if (site.collections[name]) return { created: false };
 
@@ -80,22 +67,12 @@ function addCollectionConfig(name, label, navUrl, itemLayoutName) {
   site.collections[name] = {
     dir: `content/${name}`,
     urlPattern: `${trimmedUrl}/:slug.html`,
-    layout: itemLayoutName,
+    layout: 'page',
     sort: 'order',
-    index: { label, url: navUrl },
+    index: { label, url: navUrl, layout: 'page' },
   };
   fs.writeFileSync(sitePath, `${JSON.stringify(site, null, 2)}\n`);
   return { created: true };
-}
-
-function createCollectionLayout(name, label) {
-  const layoutName = `list-${slugify(name)}`;
-  const layoutPath = path.join(layoutsPath, `${layoutName}.html`);
-  if (fs.existsSync(layoutPath)) return { layoutName, created: false };
-
-  fs.mkdirSync(layoutsPath, { recursive: true });
-  fs.writeFileSync(layoutPath, listLayoutTemplate(name, label));
-  return { layoutName, created: true };
 }
 
 if (!label || !url || extra.length) {
@@ -145,8 +122,6 @@ if (
 }
 
 const item = { label, url: normalisedUrl };
-let listLayout;
-let itemLayout;
 let sampleEntry;
 let indexPage;
 let collectionConfig;
@@ -156,15 +131,9 @@ if (collection) {
 
   const site = readJson(sitePath);
   const existingConfig = site.collections[collection];
-  const itemLayoutName = existingConfig ? existingConfig.layout : singularize(collection);
-
-  listLayout = createCollectionLayout(collection, label);
-  itemLayout = createItemLayout(itemLayoutName, label);
-  collectionConfig = existingConfig
-    ? { created: false }
-    : addCollectionConfig(collection, label, normalisedUrl, itemLayoutName);
+  collectionConfig = existingConfig ? { created: false } : addCollectionConfig(collection, label, normalisedUrl);
   sampleEntry = createSampleEntry(collection, label);
-  indexPage = createIndexPage(normalisedUrl, label, listLayout.layoutName);
+  indexPage = createIndexPage(normalisedUrl, label, collection);
 }
 
 navigation.header.items.push(item);
@@ -173,17 +142,7 @@ fs.writeFileSync(navigationPath, `${JSON.stringify(navigation, null, 2)}\n`);
 console.log(`\n  Added "${label}" -> ${normalisedUrl} to the header navbar.`);
 console.log(`  Updated ${path.relative(ROOT, navigationPath)}\n`);
 
-if (listLayout) {
-  console.log(
-    listLayout.created
-      ? `  Created templates/layouts/${listLayout.layoutName}.html (listing layout).`
-      : `  Preserved existing templates/layouts/${listLayout.layoutName}.html.`,
-  );
-  console.log(
-    itemLayout.created
-      ? `  Created templates/layouts/${itemLayout.itemLayoutName}.html (item layout).`
-      : `  Preserved existing templates/layouts/${itemLayout.itemLayoutName}.html.`,
-  );
+if (collectionConfig) {
   console.log(
     collectionConfig.created
       ? `  Added "${collection}" to site.config.json -> collections.`
@@ -196,7 +155,7 @@ if (listLayout) {
   );
   if (indexPage.skipped) {
     console.log(
-      `  Skipped the listing page: "${normalisedUrl}" isn't a single top-level path, add content/pages/<slug>.md by hand with layout: ${listLayout.layoutName}.`,
+      `  Skipped the listing page: "${normalisedUrl}" isn't a single top-level path, add a page there by hand that loops {{# each ${collection} }}.`,
     );
   } else {
     console.log(

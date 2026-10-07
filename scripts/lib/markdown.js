@@ -154,6 +154,44 @@ function renderTable(rows) {
   return `<div class="table-scroll"><table>\n<thead><tr>${th}</tr></thead>\n<tbody>\n${tb}\n</tbody>\n</table></div>`;
 }
 
+const VOID_ELEMENTS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+
+/**
+ * The index of the line that closes the element opened at the start of lines[start], or -1
+ * (not an opening tag, a void or self-closed one, or never closed). Counts nested elements of
+ * the same name and ignores HTML comments.
+ */
+function closingLine(lines, start) {
+  const open = /^<([a-zA-Z][\w-]*)\b[^>]*?(\/?)>/.exec(lines[start].trim());
+  if (!open || open[2] || VOID_ELEMENTS.has(open[1].toLowerCase())) return -1;
+  const name = open[1].toLowerCase();
+  const tags = new RegExp(`<(/?)${name}\\b[^>]*?(/?)>`, 'gi');
+  let depth = 0;
+  let inComment = false;
+  for (let i = start; i < lines.length; i++) {
+    let text = lines[i];
+    // Drop comments (and the inside of one spanning lines) before counting tags.
+    if (inComment) {
+      const close = text.indexOf('-->');
+      if (close === -1) continue;
+      text = text.slice(close + 3);
+      inComment = false;
+    }
+    text = text.replace(/<!--[\s\S]*?-->/g, '');
+    const opened = text.indexOf('<!--');
+    if (opened !== -1) {
+      text = text.slice(0, opened);
+      inComment = true;
+    }
+    for (const m of text.matchAll(tags)) {
+      if (m[2]) continue;
+      depth += m[1] ? -1 : 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
 export function renderMarkdown(source) {
   const lines = String(source || '').replace(/\r\n/g, '\n').split('\n');
   const out = [];
@@ -243,6 +281,16 @@ export function renderMarkdown(source) {
 
     // raw html block (a tag or an HTML comment; a comment may span blank lines)
     if (/^<(!--|\/?[a-zA-Z][\w-]*)/.test(line.trim())) {
+      // An element opened here runs to its matching close tag, blank lines and all, so a
+      // designed <section> with spacing inside stays one block. Unclosed: up to a blank line.
+      let end = closingLine(lines, i);
+      if (end !== -1) {
+        // As before, lines right after it (no blank line between) belong to the block too.
+        while (end + 1 < lines.length && !isBlank(lines[end + 1])) end++;
+        out.push(lines.slice(i, end + 1).join('\n'));
+        i = end + 1;
+        continue;
+      }
       const buffer = [];
       while (i < lines.length && !isBlank(lines[i])) {
         if (lines[i].lastIndexOf('<!--') > lines[i].lastIndexOf('-->')) {
@@ -266,9 +314,19 @@ export function renderMarkdown(source) {
   return { html: out.join('\n'), headings };
 }
 
+/** A body without template syntax, HTML comments or tags: bodies are often HTML. */
+function plainBody(markdown) {
+  return String(markdown || '')
+    .replace(/\{\{[\s\S]*?\}\}/g, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<\/?[a-zA-Z][^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&');
+}
+
 /** Plain-text excerpt, used for meta descriptions and blog cards. */
 export function excerpt(markdown, maxLength = 165) {
-  const text = String(markdown || '')
+  const text = plainBody(markdown)
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
@@ -281,6 +339,6 @@ export function excerpt(markdown, maxLength = 165) {
 }
 
 export function readingTime(markdown) {
-  const words = String(markdown || '').trim().split(/\s+/).filter(Boolean).length;
+  const words = plainBody(markdown).trim().split(/\s+/).filter(Boolean).length;
   return Math.max(1, Math.round(words / 225));
 }

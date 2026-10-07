@@ -44,6 +44,7 @@ import { updateChangelog, appendToSiteTree } from './lib/scaffold-tree-runner.js
 import { findJobsBlock, sanitizeHandEditedJson } from './lib/schedule-jobs.js';
 import { callClaude, stripFence, resolveImages, stripBrokenLinks, bannedPhraseWarnings } from './lib/claude-writer.js';
 import { knowledgePrompt, recordWork, summarizeChange } from './lib/knowledge.js';
+import { BLANK_LAYOUT_RULES, DESIGN_RULES, layoutShowsTitle } from './lib/design-rules.js';
 
 const SCHEDULE_PATH = path.join(ROOT, 'scripts/scaffold-schedule.md');
 
@@ -278,7 +279,14 @@ function resolveStagedLinks(text, stagedUrlMap) {
 
 /* ---------------------------------------------------------------- the call */
 
-function buildPrompts(job, skeleton, images) {
+/** Whether the collection's layout draws the title itself (older copies) or shows only the body. */
+function collectionShowsTitle(type) {
+  const name = site.collections?.[type]?.layout || 'page';
+  const file = path.join(ROOT, 'templates/layouts', `${name}.html`);
+  return /^[\w-]+$/.test(name) && fs.existsSync(file) && layoutShowsTitle(fs.readFileSync(file, 'utf8'));
+}
+
+function buildPrompts(job, skeleton, images, showsTitle) {
   const imageList = images.length
     ? images.map((img) => `- ${img.ref}${img.block ? '' : '  (reference only — not readable as an image)'}`).join('\n')
     : 'None supplied.';
@@ -296,7 +304,11 @@ ${skeleton}
 
 HOUSE RULES (from CLAUDE.md — follow exactly)
 - British spelling, sentence case headings, plain verbs. No exclamation marks, no "unlock", "seamless", "game-changing", "dive in".
-- Do not add a leading "# Title" heading in the body — the layout renders the title separately. Use "##" for section headings.
+${showsTitle ? '- Do not add a leading "# Title" heading in the body — the layout renders the title separately. Use "##" for section headings.' : `- Where these instructions say markdown, write HTML instead (the image syntax too: <img src alt loading="lazy">).
+
+${BLANK_LAYOUT_RULES}`}
+
+${DESIGN_RULES}
 
 IMAGES
 ${imageList}
@@ -407,7 +419,7 @@ async function runJob(job, stagedUrlMap) {
   }
 
   const images = resolveImages(job.images);
-  const { systemPrompt, userContent } = buildPrompts(job, skeleton, images);
+  const { systemPrompt, userContent } = buildPrompts(job, skeleton, images, collectionShowsTitle(resolved.type));
 
   if (!apiKey) {
     console.log(`\n----- ${job.title}: system prompt -----\n${systemPrompt}\n\n----- user content -----\n${typeof userContent === 'string' ? userContent : JSON.stringify(userContent, null, 2)}\n`);

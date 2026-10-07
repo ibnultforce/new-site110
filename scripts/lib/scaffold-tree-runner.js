@@ -143,7 +143,7 @@ function segmentsFor(rawPath) {
     .map((seg) => (seg === 'index' || seg === '404' ? seg : slugify(seg)));
 }
 
-/** Maps one tree path to { type, file, slug, urlOverride, title, layout, extra } */
+/** Maps one tree path to { type, file, slug, urlOverride, title, layout, listing, extra } */
 function resolveNode(rawPath, site, dirSlugMap) {
   const segments = segmentsFor(rawPath);
 
@@ -172,6 +172,7 @@ function resolveNode(rawPath, site, dirSlugMap) {
         urlOverride: url,
         layout: cfg.index?.layout || `list-${first}`,
         title: cfg.index?.label || titleFromSlug(first),
+        listing: key,
       };
     }
 
@@ -225,10 +226,12 @@ function injectFrontmatterFields(body, fields) {
 
 function buildFile(node, site) {
   const today = new Date().toISOString().slice(0, 10);
-  let body = scaffoldBody(node.type, {
+  // A collection's listing page starts with the loop that lists its entries.
+  let body = scaffoldBody(node.listing ? 'listing' : node.type, {
     title: node.title,
     today,
     defaultAuthor: site.automation.defaultAuthor,
+    collection: node.listing,
   });
 
   const fields = { ...(node.extra || {}) };
