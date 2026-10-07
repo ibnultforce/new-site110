@@ -12,6 +12,31 @@ import { ROOT } from './content.js';
 // ANTHROPIC_BASE_URL (the SDKs' variable) points at a proxy or a local mock.
 export const API_URL = `${(process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '')}/v1/messages`;
 
+// Claude 4.5+ Opus, 4.6+ Sonnet and the Fable models take an effort level; older ones (Haiku 4.5)
+// reject it. The 5.x models think on every request, and the thinking counts toward max_tokens.
+const EFFORT_MODELS = /^claude-(opus-(4-[5-8]|5)|sonnet-(4-6|5)|fable-5)/;
+// Models that retry a request their safety classifiers decline on the model Anthropic recommends.
+const FALLBACK_MODELS = /^claude-(opus-5|sonnet-5-5|fable-5-1)/;
+// Models with the newer web search tool (it filters results before Claude reads them).
+const NEW_SEARCH_MODELS = /^claude-(opus-(4-[6-8]|5)|sonnet-(4-6|5))/;
+
+/**
+ * The request fields and headers a model needs beyond the basic request: its effort level
+ * ("low", "medium", "high"…) and, where the model has them, server-side refusal fallbacks.
+ * edit-md.js and seo.js keep their own copy, because the Twinstack web app installs them into
+ * older copies without this file.
+ */
+export function modelOptions(model, effort) {
+  const body = {};
+  const headers = {};
+  if (EFFORT_MODELS.test(model)) body.output_config = { effort };
+  if (FALLBACK_MODELS.test(model)) {
+    body.fallbacks = 'default';
+    headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
+  }
+  return { body, headers };
+}
+
 const MEDIA_TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -81,28 +106,38 @@ export function stripFence(text) {
  * content blocks (e.g. text + image blocks for vision).
  */
 export async function callClaude({ apiKey, model, systemPrompt, userContent, research }) {
-  const { text } = await requestClaude({ apiKey, model, systemPrompt, userContent, research, maxTokens: 4000 });
+  const { text, stopReason } = await requestClaude({ apiKey, model, systemPrompt, userContent, research, maxTokens: 16000 });
+  if (stopReason === 'refusal') throw new Error('Claude declined this request. Rephrase it and try again.');
+  if (stopReason === 'max_tokens') throw new Error("Claude's reply was cut off at the token limit, so the page is incomplete.");
   return text;
 }
 
 /**
- * The same call, also returning why Claude stopped ("end_turn", or
- * "max_tokens" when the reply was cut off). A failed request throws an Error
+ * The same call, also returning why Claude stopped ("end_turn", "refusal",
+ * or "max_tokens" when the reply was cut off). A failed request throws an Error
  * with the HTTP `status` on it. `messages` replaces the single user turn
  * with a whole conversation (for a follow-up asking Claude to correct its reply).
+ * `maxTokens` must leave room for the model's thinking as well as the reply.
+ * The request isn't streamed, so keep it at 16000 or less: a longer reply can
+ * outlast fetch's 5-minute wait for the response.
  */
-export async function requestClaude({ apiKey, model, systemPrompt, userContent, messages, research, maxTokens = 4000 }) {
+export async function requestClaude({ apiKey, model, systemPrompt, userContent, messages, research, maxTokens = 16000, effort = 'medium' }) {
+  const options = modelOptions(model, effort);
   const body = {
     model,
     max_tokens: maxTokens,
     system: systemPrompt,
     messages: messages || [{ role: 'user', content: userContent }],
+    ...options.body,
   };
-  if (research) body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }];
+  if (research) {
+    const type = NEW_SEARCH_MODELS.test(model) ? 'web_search_20260209' : 'web_search_20250305';
+    body.tools = [{ type, name: 'web_search', max_uses: 4 }];
+  }
 
   const response = await fetch(API_URL, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', ...options.headers },
     body: JSON.stringify(body),
   });
 

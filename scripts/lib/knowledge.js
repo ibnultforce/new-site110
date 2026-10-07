@@ -265,7 +265,7 @@ ${removed || '(nothing)'}
 ----- added -----
 ${added || '(nothing)'}
 ----- end -----`;
-    const reply = await requestClaude({ apiKey, model, systemPrompt, userContent: userPrompt, maxTokens: 400 });
+    const reply = await requestClaude({ apiKey, model, systemPrompt, userContent: userPrompt, maxTokens: 2000, effort: 'low' });
     if (reply.stopReason === 'refusal') return [];
     return cleanSummary(reply.text.split('\n').filter((line) => /^\s*[-*•]\s+\S/.test(line)));
   } catch (error) {

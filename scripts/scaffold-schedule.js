@@ -51,6 +51,8 @@ const SCHEDULE_PATH = path.join(ROOT, 'scripts/scaffold-schedule.md');
 const dryRun = process.argv.slice(2).includes('--dry-run');
 const apiKey = process.env.ANTHROPIC_API_KEY;
 const site = readJson(path.join(ROOT, 'site.config.json'));
+// The Twinstack web app passes the account's chosen model; run by hand, the site's own setting.
+const CLAUDE_MODEL = process.env.TWINSTACK_MODEL || site.automation.model;
 const model = loadSite({ includeDrafts: true, includeFuture: true });
 const internalUrls = model.all.map((e) => e.url).sort();
 
@@ -427,8 +429,14 @@ async function runJob(job, stagedUrlMap) {
     return false;
   }
 
-  console.log(`  ... generating ${resolved.file} (model: ${site.automation.model}, research: ${research}, images: ${images.length})`);
-  const raw = stripFence(await callClaude({ apiKey, model: site.automation.model, systemPrompt, userContent, research }));
+  console.log(`  ... generating ${resolved.file} (model: ${CLAUDE_MODEL}, research: ${research}, images: ${images.length})`);
+  let raw;
+  try {
+    raw = stripFence(await callClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, userContent, research }));
+  } catch (error) {
+    console.error(`  ! ${job.title} — ${error.message}`);
+    return false;
+  }
   const problems = sanityCheck(raw);
   if (problems.length) {
     console.error(`  ! ${job.title} — rejected:\n${problems.map((p) => `      - ${p}`).join('\n')}`);
@@ -444,7 +452,7 @@ async function runJob(job, stagedUrlMap) {
   const before = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
   fs.writeFileSync(target, cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`);
   const instruction = `wrote "${job.title}": ${job.description || ''}`;
-  const summary = await summarizeChange({ apiKey, model: site.automation.model, command: 'scaffold:schedule', file: resolved.file, instruction, before, after: cleaned });
+  const summary = await summarizeChange({ apiKey, model: CLAUDE_MODEL, command: 'scaffold:schedule', file: resolved.file, instruction, before, after: cleaned });
   recordWork({ command: 'scaffold:schedule', file: resolved.file, instruction, summary });
   console.log(`  + ${resolved.file}`);
   return true;

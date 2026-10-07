@@ -153,6 +153,8 @@ const jsArgs = argv.filter((a) => a.startsWith('--js=')).map((a) => a.slice('--j
 const noRenderCheck = Boolean(flag('no-render-check'));
 
 const site = readJson(path.join(ROOT, 'site.config.json'));
+// The Twinstack web app passes the account's chosen model; run by hand, the site's own setting.
+const CLAUDE_MODEL = process.env.TWINSTACK_MODEL || site.automation.model;
 const apiKey = process.env.ANTHROPIC_API_KEY;
 
 /* ------------------------------------------------------------------ queue */
@@ -1359,7 +1361,7 @@ async function askClaude(buildPrompts, images) {
   // The prompts describe which images are shown, so they're rebuilt for the retry.
   const call = (list) => {
     const { systemPrompt, userPrompt } = buildPrompts(list);
-    return requestClaude({ apiKey, model: site.automation.model, systemPrompt, userContent: userContent(userPrompt, list), maxTokens: MAX_TOKENS });
+    return requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, userContent: userContent(userPrompt, list), maxTokens: MAX_TOKENS });
   };
   try {
     return { ...(await call(images)), images };
@@ -1647,7 +1649,7 @@ async function reviewConversion({ reply, buildPrompts, original, htmlPage, relFi
         : 'Review your conversion against the HTML once more, line by line: every heading, paragraph, list item, table cell, link and image of the page\'s own content must be there, in order, with the original wording, and nothing from the old site\'s header, footer or navigation. Return the complete file, corrected if anything was wrong or unchanged if not, following the same rules. Reply with the file only, starting with its opening "---": no checklist, commentary or notes before or after it.',
     });
     console.log(`  Asking Claude to ${issues.length ? 'fix what the check found' : 'review its conversion'} (attempt ${attempt + 1} of ${MAX_ATTEMPTS})…`);
-    current = await requestClaude({ apiKey, model: site.automation.model, systemPrompt, messages, maxTokens: MAX_TOKENS });
+    current = await requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, messages, maxTokens: MAX_TOKENS });
     if (current.stopReason === 'refusal') break;
   }
   const warnings = [...best.warnings];
@@ -1693,7 +1695,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
     return false;
   }
 
-  console.log(`  Model: ${site.automation.model}\n`);
+  console.log(`  Model: ${CLAUDE_MODEL}\n`);
   // The frontmatter is checked after every reply; Claude gets up to MAX_ATTEMPTS tries to fix what's wrong.
   const messages = [{ role: 'user', content: userPrompt }];
   const checks = [];
@@ -1701,7 +1703,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   let problems = [];
   let warnings = [];
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const reply = await requestClaude({ apiKey, model: site.automation.model, systemPrompt, messages, maxTokens: 4000 });
+    const reply = await requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, messages, maxTokens: 8000 });
     if (reply.stopReason === 'refusal') {
       console.error('  Claude declined this request. Rephrase the direction and try again.\n');
       return false;
@@ -1849,7 +1851,7 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     return false;
   }
 
-  console.log(`  Model: ${site.automation.model}\n`);
+  console.log(`  Model: ${CLAUDE_MODEL}\n`);
   const reply = await askClaude(buildPrompts, images);
   if (reply.stopReason === 'refusal') {
     console.error(`  Claude declined this request. Rephrase the ${{ edit: 'instruction', generate: 'draft', convert: 'direction' }[mode]} and try again.\n`);
@@ -1924,7 +1926,7 @@ const LOG_COMMANDS = { edit: 'page:edit', generate: 'page:generate', convert: 'p
  */
 async function summaryFor({ mode, relFile, instruction, before, after, notes = '' }) {
   console.log('  Writing the work-log summary…');
-  return summarizeChange({ apiKey, model: site.automation.model, command: LOG_COMMANDS[mode], file: relFile, instruction, before, after, notes });
+  return summarizeChange({ apiKey, model: CLAUDE_MODEL, command: LOG_COMMANDS[mode], file: relFile, instruction, before, after, notes });
 }
 
 /** What the work log says a run without an instruction did. */
@@ -1956,7 +1958,7 @@ function writeProposal({ relFile, mode, instruction, images, raw, problems, warn
     content: raw.endsWith('\n') ? raw : `${raw}\n`,
     problems,
     warnings,
-    model: site.automation.model,
+    model: CLAUDE_MODEL,
     createdAt: new Date().toISOString(),
   };
   fs.mkdirSync(path.dirname(target), { recursive: true });

@@ -63,6 +63,8 @@ const dryRun = Boolean(flag('dry-run'));
 const proposalOut = flag('proposal-out');
 
 const site = readJson(path.join(ROOT, 'site.config.json'));
+// The Twinstack web app passes the account's chosen model; run by hand, the site's own setting.
+const CLAUDE_MODEL = process.env.TWINSTACK_MODEL || site.automation.model;
 const apiKey = process.env.ANTHROPIC_API_KEY;
 
 /* ------------------------------------------------------------ own helpers */
@@ -70,16 +72,30 @@ const apiKey = process.env.ANTHROPIC_API_KEY;
 // ANTHROPIC_BASE_URL points at a proxy or a local mock, as in lib/claude-writer.js.
 const API_URL = `${(process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '')}/v1/messages`;
 
+/** The effort level and refusal fallbacks the model takes: a copy of modelOptions in lib/claude-writer.js. */
+function modelOptions(model, effort) {
+  const body = {};
+  const headers = {};
+  if (/^claude-(opus-(4-[5-8]|5)|sonnet-(4-6|5)|fable-5)/.test(model)) body.output_config = { effort };
+  if (/^claude-(opus-5|sonnet-5-5|fable-5-1)/.test(model)) {
+    body.fallbacks = 'default';
+    headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
+  }
+  return { body, headers };
+}
+
 /** One Messages API call: the reply text and why Claude stopped ("max_tokens" when cut off). */
 async function requestClaude({ systemPrompt, userContent }) {
+  const options = modelOptions(CLAUDE_MODEL, 'medium');
   const response = await fetch(API_URL, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', ...options.headers },
     body: JSON.stringify({
-      model: site.automation.model,
+      model: CLAUDE_MODEL,
       max_tokens: MAX_TOKENS,
       system: systemPrompt,
       messages: [{ role: 'user', content: userContent }],
+      ...options.body,
     }),
   });
   if (!response.ok) throw new Error(`Anthropic API ${response.status}: ${(await response.text()).slice(0, 400)}`);
@@ -254,7 +270,7 @@ function checks(rel, original, updated) {
 function summarize(rel, instruction, before, after) {
   if (!knowledge?.summarizeChange || knowledge.isKnowledgeFile(rel)) return Promise.resolve([]);
   console.log('  Writing the work-log summary…');
-  return knowledge.summarizeChange({ apiKey, model: site.automation.model, command: 'md:edit', file: rel, instruction, before, after });
+  return knowledge.summarizeChange({ apiKey, model: CLAUDE_MODEL, command: 'md:edit', file: rel, instruction, before, after });
 }
 
 function writeProposal({ rel, instruction, content, problems, warnings, summary = [] }) {
@@ -272,7 +288,7 @@ function writeProposal({ rel, instruction, content, problems, warnings, summary 
     problems,
     warnings,
     ...(summary.length ? { summary } : {}),
-    model: site.automation.model,
+    model: CLAUDE_MODEL,
     createdAt: new Date().toISOString(),
   };
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -294,7 +310,7 @@ async function run({ rel, full }, instruction) {
     return dryRun ? 0 : 1;
   }
 
-  console.log(`  Model: ${site.automation.model}\n`);
+  console.log(`  Model: ${CLAUDE_MODEL}\n`);
   const reply = await requestClaude({ systemPrompt, userContent: userPrompt });
   if (reply.stopReason === 'refusal') {
     console.error('  Claude declined this request. Rephrase the instruction and try again.\n');

@@ -54,7 +54,8 @@ import { LIMITS, SEO_FIELDS, auditPages, hasKeyword, pageSeo, seoSettings, setFr
 
 const knowledge = await import('./lib/knowledge.js').catch(() => null);
 
-const MAX_TOKENS = 1000;
+// Room for the model's thinking as well as the short JSON reply.
+const MAX_TOKENS = 8000;
 const MAX_ATTEMPTS = 3;
 const MAX_PAGE_CHARS = 12000;
 const MAX_OTHER_PAGES = 80;
@@ -82,6 +83,8 @@ const FIELD_FLAGS = {
 
 let model = load();
 const { site } = model;
+// The Twinstack web app passes the account's chosen model; run by hand, the site's own setting.
+const CLAUDE_MODEL = process.env.TWINSTACK_MODEL || site.automation.model;
 
 function load() {
   return loadSite({ includeDrafts: true, includeFuture: true });
@@ -362,11 +365,24 @@ function setByHand(page) {
 // ANTHROPIC_BASE_URL points at a proxy or a local mock, as in lib/claude-writer.js.
 const API_URL = `${(process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '')}/v1/messages`;
 
+/** The effort level and refusal fallbacks the model takes: a copy of modelOptions in lib/claude-writer.js. */
+function modelOptions(model, effort) {
+  const body = {};
+  const headers = {};
+  if (/^claude-(opus-(4-[5-8]|5)|sonnet-(4-6|5)|fable-5)/.test(model)) body.output_config = { effort };
+  if (/^claude-(opus-5|sonnet-5-5|fable-5-1)/.test(model)) {
+    body.fallbacks = 'default';
+    headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
+  }
+  return { body, headers };
+}
+
 async function requestClaude({ systemPrompt, messages }) {
+  const options = modelOptions(CLAUDE_MODEL, 'medium');
   const response = await fetch(API_URL, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: site.automation.model, max_tokens: MAX_TOKENS, system: systemPrompt, messages }),
+    headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', ...options.headers },
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: MAX_TOKENS, system: systemPrompt, messages, ...options.body }),
   });
   if (!response.ok) throw new Error(`Anthropic API ${response.status}: ${(await response.text()).slice(0, 400)}`);
   const payload = await response.json();
@@ -509,7 +525,7 @@ function writeProposal({ page, direction, fields, content, problems, warnings, s
     problems,
     warnings,
     ...(summary.length ? { summary } : {}),
-    model: site.automation.model,
+    model: CLAUDE_MODEL,
     createdAt: new Date().toISOString(),
   };
   fs.writeFileSync(target, `${JSON.stringify(proposal, null, 2)}\n`);
@@ -560,7 +576,7 @@ async function runClaude(target, direction) {
     console.error('\n  ANTHROPIC_API_KEY is not set. Add it to .env or your environment.\n');
     return 1;
   }
-  console.log(`  Model: ${site.automation.model}`);
+  console.log(`  Model: ${CLAUDE_MODEL}`);
   if (target) {
     const { code } = await claudeFor(target, direction, { single: true });
     console.log('');

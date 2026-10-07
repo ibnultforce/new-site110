@@ -536,6 +536,16 @@ strings `--proposal-out`, `--generate`, `--from-html` and `--keep-styles`, so
 keep all four in the file.
 `ANTHROPIC_BASE_URL` overrides the API host for a proxy or a mock.
 
+The model is `TWINSTACK_MODEL` when set (the Twinstack web app passes the account's chosen
+model), otherwise `site.config.json` → `automation.model` (`claude-opus-5-5`); each script
+reads it into `CLAUDE_MODEL`. Every request
+goes through `modelOptions` in `lib/claude-writer.js` (copied into `edit-md.js` and
+`seo.js`, which the web app installs without it): an effort level (`medium`, `low` for
+work-log summaries) on models that take one, and server-side refusal fallbacks
+(`fallbacks: "default"`) on the 5.x models. These models think on every request and
+the thinking counts toward `max_tokens`, so limits leave room for it; requests aren't
+streamed, so keep them at 16000 or less, or a reply can outlast fetch's 5-minute wait.
+
 Run with no `<page>` argument and it works through the queue in
 `scripts/page-commands.json` instead — a list of `{ file, instruction }` jobs,
 applied in order, each one removed from the queue once it's written. Add jobs
@@ -656,7 +666,7 @@ Every Claude request (`page:edit`, `page:generate`, `md:edit`,
   indented `  - ` points (each at most 200 characters) saying what the change
   actually did. Entries from before summaries are just the line.
   - **The points:** `summarizeChange` in `knowledge.js` makes them with one
-    small extra Claude request (400 tokens at most). It sends the request that
+    small extra Claude request (`low` effort). It sends the request that
     was made and the part of the file that changed: lines shared at the start
     and end are left out, and each side is capped at 9,000 characters.
   - **Conversions that kept the old page's styles** send the frontmatter
