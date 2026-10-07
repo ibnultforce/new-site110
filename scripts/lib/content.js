@@ -208,7 +208,9 @@ const FOOTER_THEMES = ['dark', 'light', 'brand'];
  * and style them with Tailwind variants, since templates can't compare
  * values. `tone` is "dark" for any theme with light text on it, and `logo` is
  * the logo for that background (the dark one when there is one), or "" to
- * show the icon and name.
+ * show the icon and name. A header or footer Claude designed (data-designed="claude")
+ * picks its own colours, so it uses `logoOnLight` or `logoOnDark` for the
+ * background it chose instead.
  */
 function navAppearance(config, brand = {}) {
   const header = config?.header || {};
@@ -225,6 +227,8 @@ function navAppearance(config, brand = {}) {
       layout: HEADER_LAYOUTS.includes(header.layout) ? header.layout : 'right',
       sticky: header.sticky !== false,
       logo: logoOn(headerTone),
+      logoOnLight: logoOn('light'),
+      logoOnDark: logoOn('dark'),
     },
     footer: {
       theme: footerTheme,
@@ -233,6 +237,8 @@ function navAppearance(config, brand = {}) {
       showContact: footer.showContact !== false,
       copyright: typeof footer.copyright === 'string' ? footer.copyright.trim() : '',
       logo: logoOn(footerTone),
+      logoOnLight: logoOn('light'),
+      logoOnDark: logoOn('dark'),
     },
   };
 }

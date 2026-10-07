@@ -93,9 +93,10 @@ import { ROOT, readJson, loadSite } from './lib/content.js';
 import { parseFrontmatter, renderMarkdown } from './lib/markdown.js';
 import { TemplateEngine } from './lib/template.js';
 import { renderCheck, scriptCheck } from './lib/render-check.js';
-import { bannedPhraseWarnings, requestClaude, resolveImages, stripFence } from './lib/claude-writer.js';
+import { PAGE_MAX_TOKENS, bannedPhraseWarnings, requestClaude, resolveImages, stripFence } from './lib/claude-writer.js';
 import { knowledgePrompt, recordWork, summarizeChange } from './lib/knowledge.js';
-import { BLANK_LAYOUT_RULES, DESIGN_RULES, layoutShowsTitle } from './lib/design-rules.js';
+import { BLANK_LAYOUT_RULES, DESIGN_RULES, layoutShowsTitle, styleReference } from './lib/design-rules.js';
+import { CHROME_RULES, FOOTER_FILE, HEADER_FILE, chromeChecks, chromeData, readChromeReply } from './lib/chrome.js';
 import {
   MAX_CLEAN_CHARS,
   asRawBlock,
@@ -118,7 +119,8 @@ import { globalStylesheets } from './lib/scaffold-tree-runner.js';
 const COMMANDS_PATH = path.join(ROOT, 'scripts/page-commands.json');
 const DEFAULT_QUEUE_COMMENT = 'Queue of pending edits for `npm run page:edit` (no arguments). Each entry is one job: { file, instruction }, optionally with "images": [...] and "mode": "generate" (turn the file\'s own draft into the finished page; the instruction may then be empty). Running with no arguments processes every entry in order, writes each one, then removes it from this queue. Add entries by hand any time; running `npm run page:edit -- <page> "<instruction>"` with arguments applies that edit immediately instead and never touches this file.';
 const EDITABLE_ROOTS = ['content', 'templates', 'styles/main.css', 'site.config.json'];
-const MAX_TOKENS = 16000;
+// A whole designed page plus the thinking behind it (claude-writer.js streams the reply).
+const MAX_TOKENS = PAGE_MAX_TOKENS;
 // Keeps the request well inside the API's 32 MB limit (base64 adds a third).
 const MAX_VISION_IMAGES = 20;
 const MAX_VISION_BYTES = 18 * 1024 * 1024;
@@ -233,16 +235,21 @@ function collectionFor(relFile) {
   return entries[0] ? { name: entries[0][0], ...entries[0][1] } : null;
 }
 
-/** Every URL a page can link to: pages, collection indexes and the homepage. */
+/**
+ * Every URL a page can link to: the pages the site has (a collection's listing
+ * page among them once it exists) and the homepage. A collection's listing
+ * address only counts while the site can't be loaded: the site's own check
+ * fails a link to a listing page that was never made.
+ */
 function internalUrls() {
   const urls = new Set(['/']);
   try {
     for (const entry of loadSite({ includeDrafts: true, includeFuture: true }).all) urls.add(entry.url);
   } catch {
     // A broken page elsewhere shouldn't stop this one being edited.
-  }
-  for (const collection of Object.values(site.collections || {})) {
-    if (collection.index?.url) urls.add(collection.index.url);
+    for (const collection of Object.values(site.collections || {})) {
+      if (collection.index?.url) urls.add(collection.index.url);
+    }
   }
   return [...urls].sort();
 }
@@ -283,7 +290,16 @@ const HOUSE_RULES = `HOUSE RULES (from CLAUDE.md — follow these exactly)
 - Never hand-list content that a collection already provides (products, services, posts, case studies) — loop over the collection with {{#each}}.
 - Do not invent facts: statistics, client names, release numbers, or claims about how a product or platform behaves need to already be true of the codebase you can see. If unsure, describe the shape of the thing rather than quantifying it.
 - British spelling, sentence case headings, plain verbs. No exclamation marks, no "unlock", "seamless", "game-changing", "dive in".
-- Utilities belong inline in templates; only touch styles/main.css for tokens or patterns already repeated three or more times elsewhere, and never touch assets/css/main.css (it is compiled output).`;
+- Each page carries its own design in its body. Don't change styles/main.css or the header and footer for one page's sake, and never touch assets/css/main.css (it is compiled output).`;
+
+/** The site's look (styleReference) as a prompt section ending in a blank line, for a content page; '' otherwise. */
+function lookSection(relFile) {
+  if (!relFile.startsWith('content/')) return '';
+  const section = styleReference(relFile);
+  return section ? `${section}
+
+` : '';
+}
 
 /** knowledge/ (the owner's notes and the work log) as a prompt section ending in a blank line, or ''. */
 function knowledgeSection() {
@@ -299,7 +315,9 @@ function buildEditPrompts(relFile, instruction, original, images = []) {
   const contextNote = isContent
     ? `This file is a markdown content file. Its body is rendered as a template BEFORE markdown conversion, so template syntax works directly in the body. ${contextVariables()}
 
-${bodyRules(layoutFor(relFile, parseFrontmatter(original).data))}`
+${bodyRules(layoutFor(relFile, parseFrontmatter(original).data))}
+- Link only to pages the site has, to #anchors on this page, or to mailto:, tel: and outside addresses. Never invent a URL: a link to a page the site doesn't have stops the site from publishing. The site's pages:
+${internalUrls().map((u) => `    ${u}`).join('\n')}`
     : relFile.startsWith('templates/')
       ? `This file is an HTML template rendered with the same template engine as content files. It has no server-side logic beyond the engine's own syntax. ${contextVariables()}`
       : `This is a site-wide config or stylesheet file, not rendered through the template engine.`;
@@ -312,8 +330,8 @@ ${contextNote}
 
 ${DESIGN_RULES}
 
-${HOUSE_RULES}
-- Preserve everything about the file that the instruction doesn't ask you to change: frontmatter fields and their order, unrelated sections, existing classes and structure, indentation style.
+${lookSection(relFile)}${HOUSE_RULES}
+- Preserve everything about the file that the instruction doesn't ask you to change: frontmatter fields and their order, unrelated sections, indentation style. When the instruction asks for a new look, a redesign or a better design, redesign freely: keep the page's content and facts, and change its design as much as it takes.
 
 ${knowledgeSection()}OUTPUT
 Return only the raw contents of the new file, starting from its very first character (frontmatter's opening "---" for a content file). No commentary, no explanation, no surrounding code fence.`;
@@ -409,7 +427,7 @@ ${contextVariables()}
 
 ${DESIGN_RULES}
 
-${HOUSE_RULES}
+${lookSection(relFile)}${HOUSE_RULES}
 - Preserve everything the instruction doesn't ask you to change: fields and their order, unrelated sections, JSON key order and indentation.
 
 ${knowledgeSection()}OUTPUT
@@ -559,7 +577,7 @@ This file's body is rendered as a template BEFORE markdown conversion, so templa
 
 ${DESIGN_RULES}
 
-${HOUSE_RULES}
+${lookSection(relFile)}${HOUSE_RULES}
 
 ${knowledgeSection()}OUTPUT
 Before answering, check each sentence, list item and frontmatter value against the draft: if it states something the draft doesn't (a detail, qualifier, promise or next step), remove it. Then return only the raw contents of the finished file, starting with the opening "---" of the frontmatter. No commentary, no explanation, no surrounding code fence.`;
@@ -663,7 +681,7 @@ ${imageList}${unavailable}
 
 ${DESIGN_RULES}
 
-${HOUSE_RULES.replace(/^- (British spelling|Do not invent facts).*\n/gm, '')}
+${lookSection(relFile)}${HOUSE_RULES.replace(/^- (British spelling|Do not invent facts).*\n/gm, '')}
 - Keep the original wording even where it doesn't follow this site's style: the author asked for a conversion. Only follow the style rules for text you have to write yourself (a description, alt text).
 
 ${knowledgeSection()}OUTPUT
@@ -1361,7 +1379,7 @@ async function askClaude(buildPrompts, images) {
   // The prompts describe which images are shown, so they're rebuilt for the retry.
   const call = (list) => {
     const { systemPrompt, userPrompt } = buildPrompts(list);
-    return requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, userContent: userContent(userPrompt, list), maxTokens: MAX_TOKENS });
+    return requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, userContent: userContent(userPrompt, list), maxTokens: MAX_TOKENS, effort: 'high' });
   };
   try {
     return { ...(await call(images)), images };
@@ -1649,7 +1667,7 @@ async function reviewConversion({ reply, buildPrompts, original, htmlPage, relFi
         : 'Review your conversion against the HTML once more, line by line: every heading, paragraph, list item, table cell, link and image of the page\'s own content must be there, in order, with the original wording, and nothing from the old site\'s header, footer or navigation. Return the complete file, corrected if anything was wrong or unchanged if not, following the same rules. Reply with the file only, starting with its opening "---": no checklist, commentary or notes before or after it.',
     });
     console.log(`  Asking Claude to ${issues.length ? 'fix what the check found' : 'review its conversion'} (attempt ${attempt + 1} of ${MAX_ATTEMPTS})…`);
-    current = await requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, messages, maxTokens: MAX_TOKENS });
+    current = await requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, messages, maxTokens: MAX_TOKENS, effort: 'high' });
     if (current.stopReason === 'refusal') break;
   }
   const warnings = [...best.warnings];
@@ -1663,6 +1681,7 @@ const MODE_LABELS = {
   edit: 'edit by instruction',
   generate: 'generate the page from its draft',
   convert: 'convert an HTML page into this page',
+  chrome: 'design the header and footer',
 };
 
 /** --from-html --keep-styles: the old page's HTML and CSS copied as-is, and Claude writes the frontmatter. */
@@ -1917,7 +1936,103 @@ function withExtras(relFile, page, extraFiles, side) {
   return [`----- ${relFile} -----\n${page}`, ...extraFiles.map((f) => `----- ${f.file} -----\n${text(f)}`)].join('\n');
 }
 
-const LOG_COMMANDS = { edit: 'page:edit', generate: 'page:generate', convert: 'page:convert' };
+const LOG_COMMANDS = { edit: 'page:edit', generate: 'page:generate', convert: 'page:convert', chrome: 'chrome:design' };
+
+/* ------------------------------------------------------ header and footer */
+
+/**
+ * --chrome: Claude designs the header and footer as a pair (lib/chrome.js).
+ * They frame every page, so the result is one design across the whole site.
+ */
+function buildChromePrompts(instruction, current) {
+  const look = styleReference(HEADER_FILE);
+  const systemPrompt = `You design the header and footer of ${site.name}'s website (${site.description || site.tagline || 'a business website'}). templates/partials/base.html puts these two partials around every page of the site, so they are the same on every page: design them once, as the frame of the whole site.
+
+${TEMPLATE_SYNTAX}
+
+${DESIGN_RULES}
+
+${look ? `${look}\n\n` : ''}${CHROME_RULES}
+
+- British spelling, sentence case. No exclamation marks.
+
+${knowledgeSection()}OUTPUT
+Return exactly these two blocks and nothing else (no commentary, no code fences):
+===== FILE: ${HEADER_FILE} =====
+<the complete new header>
+===== FILE: ${FOOTER_FILE} =====
+<the complete new footer>`;
+
+  const userPrompt = `What the menu and footer hold now (the design must fit this, and any later change to it):
+${chromeData()}
+
+----- current ${HEADER_FILE} -----
+${current.header}
+----- current ${FOOTER_FILE} -----
+${current.footer}
+----- end -----
+
+${instruction ? `Direction: ${instruction}` : 'Design the header and footer for this site, in the look of its pages.'}`;
+  return { systemPrompt, userPrompt };
+}
+
+async function applyChrome(instruction) {
+  console.log(`  Files: ${HEADER_FILE}, ${FOOTER_FILE}`);
+  console.log(`  Mode: ${MODE_LABELS.chrome}`);
+  if (instruction) console.log(`  Direction: ${instruction}`);
+
+  const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+  const current = { header: read(HEADER_FILE), footer: read(FOOTER_FILE) };
+  const { systemPrompt, userPrompt } = buildChromePrompts(instruction, current);
+  if (!apiKey) {
+    console.log(`----- system prompt -----\n${systemPrompt}\n\n----- user prompt -----\n${userPrompt}\n`);
+    console.log('  No ANTHROPIC_API_KEY set, so nothing was sent.\n');
+    return false;
+  }
+
+  console.log(`  Model: ${CLAUDE_MODEL}\n`);
+  const reply = await requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, userContent: userPrompt, maxTokens: MAX_TOKENS, effort: 'high' });
+  if (reply.stopReason === 'refusal') {
+    console.error('  Claude declined this request. Rephrase the direction and try again.\n');
+    return false;
+  }
+  const files = readChromeReply(reply.text);
+  const { problems, warnings } = chromeChecks(files, { partialNames: partialNames() });
+  if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the files are incomplete`);
+  const withNewline = (text) => (text.endsWith('\n') ? text : `${text}\n`);
+  const header = withNewline(files[HEADER_FILE] ?? '');
+  const footer = withNewline(files[FOOTER_FILE] ?? '');
+  const pair = (h, f) => `----- ${HEADER_FILE} -----\n${h}\n----- ${FOOTER_FILE} -----\n${f}`;
+  const logInstruction = instruction || 'designed the header and footer';
+
+  if (dryRun) {
+    console.log(`----- proposed ${HEADER_FILE} (not written) -----\n\n${header}`);
+    console.log(`----- proposed ${FOOTER_FILE} (not written) -----\n\n${footer}`);
+    if (problems.length) console.log(`\n  problem: ${problems.join('\n  problem: ')}`);
+    if (warnings.length) console.log(`\n  warning: ${warnings.join('\n  warning: ')}`);
+    if (proposalOut) {
+      const summary = await summaryFor({ mode: 'chrome', relFile: HEADER_FILE, instruction: logInstruction, before: pair(current.header, current.footer), after: pair(header, footer) });
+      writeProposal({ relFile: HEADER_FILE, mode: 'chrome', instruction, images: [], raw: header, problems, warnings, files: [{ file: FOOTER_FILE, content: footer }], summary });
+    }
+    return false;
+  }
+
+  if (problems.length) {
+    console.error(`\n  Refused to write — looked wrong:\n${problems.map((p) => `    - ${p}`).join('\n')}\n\n  Re-run with --dry-run to inspect the output, or rephrase the direction.\n`);
+    return false;
+  }
+  fs.writeFileSync(path.join(ROOT, HEADER_FILE), header);
+  fs.writeFileSync(path.join(ROOT, FOOTER_FILE), footer);
+  recordWork({
+    command: LOG_COMMANDS.chrome,
+    file: HEADER_FILE,
+    instruction: logInstruction,
+    summary: await summaryFor({ mode: 'chrome', relFile: HEADER_FILE, instruction: logInstruction, before: pair(current.header, current.footer), after: pair(header, footer) }),
+  });
+  for (const warning of warnings) console.log(`  warning: ${warning}`);
+  console.log(`\n  Wrote ${HEADER_FILE} and ${FOOTER_FILE}\n`);
+  return true;
+}
 
 /**
  * The work-log summary of a change: a few points Claude writes from what
@@ -2042,7 +2157,25 @@ async function runQueue() {
   }
 }
 
-if (positional.length) {
+if (flag('chrome')) {
+  // --chrome ["<direction>"]: no page; the header and footer are designed together.
+  if (!apiKey && !dryRun) {
+    console.error('\n  ANTHROPIC_API_KEY is not set. Add it to your environment or repository secrets.\n');
+    process.exit(1);
+  }
+  const direction = positional[0] || (typeof flag('instruction') === 'string' ? flag('instruction') : '');
+  applyChrome(direction)
+    .then((ok) => {
+      if (!dryRun) {
+        console.log(ok ? `  Review with: git diff -- ${HEADER_FILE} ${FOOTER_FILE}\n  Validate with: npm run check\n` : '');
+        process.exit(ok ? 0 : 3);
+      }
+    })
+    .catch((error) => {
+      console.error(`\n  Header and footer design failed: ${error.message}\n`);
+      process.exit(1);
+    });
+} else if (positional.length) {
   const [pageArg, instructionArg] = positional;
   const instruction = instructionArg || (typeof flag('instruction') === 'string' ? flag('instruction') : '');
   const mode = generateFlag ? 'generate' : fromHtml !== undefined ? 'convert' : 'edit';
@@ -2060,6 +2193,7 @@ if (positional.length) {
                                                               copy an existing HTML page in, as it is, with its own CSS
     node scripts/edit-page.js <page> --from-html=<file.html> --markdown ["<direction>"]
                                                               rewrite it as markdown in the site's design instead
+    node scripts/edit-page.js --chrome ["<direction>"]        design the header and footer (shown on every page)
     node scripts/edit-page.js                                 run every queued edit
     node scripts/edit-page.js --list                          show the queue
 `);

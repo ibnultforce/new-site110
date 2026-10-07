@@ -285,8 +285,14 @@ export function renderMarkdown(source) {
       // designed <section> with spacing inside stays one block. Unclosed: up to a blank line.
       let end = closingLine(lines, i);
       if (end !== -1) {
-        // As before, lines right after it (no blank line between) belong to the block too.
-        while (end + 1 < lines.length && !isBlank(lines[end + 1])) end++;
+        // As before, lines right after it (no blank line between) belong to the block too, and
+        // an element opened on one of them (a <script> right after a </section>) runs to its own
+        // close tag, blank lines and all.
+        while (end + 1 < lines.length && !isBlank(lines[end + 1])) {
+          end++;
+          const inner = closingLine(lines, end);
+          if (inner > end) end = inner;
+        }
         out.push(lines.slice(i, end + 1).join('\n'));
         i = end + 1;
         continue;

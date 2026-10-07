@@ -44,7 +44,7 @@ import { updateChangelog, appendToSiteTree } from './lib/scaffold-tree-runner.js
 import { findJobsBlock, sanitizeHandEditedJson } from './lib/schedule-jobs.js';
 import { callClaude, stripFence, resolveImages, stripBrokenLinks, bannedPhraseWarnings } from './lib/claude-writer.js';
 import { knowledgePrompt, recordWork, summarizeChange } from './lib/knowledge.js';
-import { BLANK_LAYOUT_RULES, DESIGN_RULES, layoutShowsTitle } from './lib/design-rules.js';
+import { BLANK_LAYOUT_RULES, DESIGN_RULES, layoutShowsTitle, styleReference } from './lib/design-rules.js';
 
 const SCHEDULE_PATH = path.join(ROOT, 'scripts/scaffold-schedule.md');
 
@@ -288,7 +288,8 @@ function collectionShowsTitle(type) {
   return /^[\w-]+$/.test(name) && fs.existsSync(file) && layoutShowsTitle(fs.readFileSync(file, 'utf8'));
 }
 
-function buildPrompts(job, skeleton, images, showsTitle) {
+function buildPrompts(job, skeleton, images, showsTitle, file) {
+  const look = styleReference(file);
   const imageList = images.length
     ? images.map((img) => `- ${img.ref}${img.block ? '' : '  (reference only — not readable as an image)'}`).join('\n')
     : 'None supplied.';
@@ -311,7 +312,9 @@ ${showsTitle ? '- Do not add a leading "# Title" heading in the body — the lay
 ${BLANK_LAYOUT_RULES}`}
 
 ${DESIGN_RULES}
-
+${look ? `
+${look}
+` : ''}
 IMAGES
 ${imageList}
 If any are listed as readable, use markdown image syntax ![alt text](path) with that exact path, wherever it genuinely fits — do not invent or alter a path. If none are listed, add no images.
@@ -421,7 +424,7 @@ async function runJob(job, stagedUrlMap) {
   }
 
   const images = resolveImages(job.images);
-  const { systemPrompt, userContent } = buildPrompts(job, skeleton, images, collectionShowsTitle(resolved.type));
+  const { systemPrompt, userContent } = buildPrompts(job, skeleton, images, collectionShowsTitle(resolved.type), resolved.file);
 
   if (!apiKey) {
     console.log(`\n----- ${job.title}: system prompt -----\n${systemPrompt}\n\n----- user content -----\n${typeof userContent === 'string' ? userContent : JSON.stringify(userContent, null, 2)}\n`);

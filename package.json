@@ -26,6 +26,8 @@
     "page:edit:list": "node --env-file-if-exists=.env scripts/edit-page.js --list",
     "page:generate": "node --env-file-if-exists=.env scripts/edit-page.js --generate",
     "page:generate:preview": "node --env-file-if-exists=.env scripts/edit-page.js --generate --dry-run",
+    "chrome:design": "node --env-file-if-exists=.env scripts/edit-page.js --chrome",
+    "chrome:design:preview": "node --env-file-if-exists=.env scripts/edit-page.js --chrome --dry-run",
     "md:edit": "node --env-file-if-exists=.env scripts/edit-md.js",
     "md:edit:preview": "node --env-file-if-exists=.env scripts/edit-md.js --dry-run",
     "md:edit:list": "node scripts/edit-md.js --list",

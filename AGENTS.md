@@ -8,7 +8,8 @@ content and JSON data are rendered through logic-light HTML templates into
 
 - Read [CLAUDE.md](CLAUDE.md) for the repository rules and frontmatter reference.
 - Read [README.md](README.md) for the project map and build pipeline.
-- Read [TAILWIND-GUIDELINES.md](TAILWIND-GUIDELINES.md) before changing CSS or
+- Read [TAILWIND-GUIDELINES.md](TAILWIND-GUIDELINES.md) (how styling works: no design
+  system, each page designs itself) before changing CSS or
   adding Tailwind classes.
 - Read [knowledge/notes.md](knowledge/notes.md) and `knowledge/work-log.md`
   (if present) before changing content: the owner's standing notes and what

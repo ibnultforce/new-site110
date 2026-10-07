@@ -89,5 +89,5 @@ creating the file — no other file needs to change.
 
 ## More
 
-`TAILWIND-GUIDELINES.md` (styling) · `scripts/scaffold-schedule.md` (scheduled
+`TAILWIND-GUIDELINES.md` (styling: no design system) · `scripts/scaffold-schedule.md` (scheduled
 content) · `CLAUDE.md` (rules for AI-assisted edits, deployment).

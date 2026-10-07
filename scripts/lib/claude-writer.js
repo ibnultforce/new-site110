@@ -37,6 +37,9 @@ export function modelOptions(model, effort) {
   return { body, headers };
 }
 
+// A whole designed page plus the model's thinking about it, at high effort.
+export const PAGE_MAX_TOKENS = 64000;
+
 const MEDIA_TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -106,7 +109,7 @@ export function stripFence(text) {
  * content blocks (e.g. text + image blocks for vision).
  */
 export async function callClaude({ apiKey, model, systemPrompt, userContent, research }) {
-  const { text, stopReason } = await requestClaude({ apiKey, model, systemPrompt, userContent, research, maxTokens: 16000 });
+  const { text, stopReason } = await requestClaude({ apiKey, model, systemPrompt, userContent, research, maxTokens: PAGE_MAX_TOKENS, effort: 'high' });
   if (stopReason === 'refusal') throw new Error('Claude declined this request. Rephrase it and try again.');
   if (stopReason === 'max_tokens') throw new Error("Claude's reply was cut off at the token limit, so the page is incomplete.");
   return text;
@@ -118,8 +121,8 @@ export async function callClaude({ apiKey, model, systemPrompt, userContent, res
  * with the HTTP `status` on it. `messages` replaces the single user turn
  * with a whole conversation (for a follow-up asking Claude to correct its reply).
  * `maxTokens` must leave room for the model's thinking as well as the reply.
- * The request isn't streamed, so keep it at 16000 or less: a longer reply can
- * outlast fetch's 5-minute wait for the response.
+ * The reply is streamed, so a long one never outlasts fetch's 5-minute wait
+ * for a response.
  */
 export async function requestClaude({ apiKey, model, systemPrompt, userContent, messages, research, maxTokens = 16000, effort = 'medium' }) {
   const options = modelOptions(model, effort);
@@ -128,6 +131,7 @@ export async function requestClaude({ apiKey, model, systemPrompt, userContent, 
     max_tokens: maxTokens,
     system: systemPrompt,
     messages: messages || [{ role: 'user', content: userContent }],
+    stream: true,
     ...options.body,
   };
   if (research) {
@@ -147,9 +151,42 @@ export async function requestClaude({ apiKey, model, systemPrompt, userContent, 
     throw error;
   }
 
-  const payload = await response.json();
-  const text = payload.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
-  return { text, stopReason: payload.stop_reason ?? null };
+  return readStream(response);
+}
+
+/**
+ * The reply text and stop reason from a streamed response (server-sent
+ * events): text deltas are joined, other blocks (thinking, search results, a
+ * fallback marker) are skipped. An error event mid-stream throws, with `status`
+ * 529 when the API was overloaded.
+ */
+async function readStream(response) {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let text = '';
+  let stopReason = null;
+  const handle = (raw) => {
+    const data = raw.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
+    if (!data) return;
+    const event = JSON.parse(data);
+    if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') text += event.delta.text;
+    else if (event.type === 'message_delta' && event.delta?.stop_reason) stopReason = event.delta.stop_reason;
+    else if (event.type === 'error') {
+      const error = new Error(`Anthropic API ${event.error?.type ?? 'error'}: ${event.error?.message ?? ''}`.trim());
+      error.status = event.error?.type === 'overloaded_error' ? 529 : 500;
+      throw error;
+    }
+  };
+  for await (const chunk of response.body) {
+    buffer += decoder.decode(chunk, { stream: true }).replace(/\r\n/g, '\n');
+    let cut;
+    while ((cut = buffer.indexOf('\n\n')) !== -1) {
+      handle(buffer.slice(0, cut));
+      buffer = buffer.slice(cut + 2);
+    }
+  }
+  if (buffer.trim()) handle(buffer);
+  return { text: text.trim(), stopReason };
 }
 
 /** Strips any root-relative markdown link that doesn't match a real URL,

@@ -15,7 +15,7 @@ frontmatter, templates are logic-light HTML styled with Tailwind, everything
 else is derived. Node 18+ and one `npm install` (Tailwind only) are the
 requirements — no framework, no bundler.
 
-**Read `TAILWIND-GUIDELINES.md` before writing any CSS or class name.**
+**Read `TAILWIND-GUIDELINES.md` before writing any CSS or class name.** There is no design system: each page designs itself.
 
 ```
 site.config.json     brand, contact, collections, deploy, automation settings
@@ -157,11 +157,17 @@ build time.
 4. **Pages design themselves, and responsively.** The only layout,
    `templates/layouts/page.html`, shows the page's body between the header and
    footer, nothing else. A page's body is the whole page: its `<h1>`, sections
-   and any collection loops, written as HTML in the site's design
-   (`scripts/lib/scaffold-templates.js` has the starting bodies). Everything
-   written must work from 360px wide up: mobile first, columns only from `md:`
-   or `lg:` up, no fixed pixel widths. `scripts/lib/design-rules.js` holds
-   these rules, and every Claude request that writes a page gets them.
+   and any collection loops, written as HTML with any Tailwind utilities, plus
+   its own `<style>` and `<script>` when it needs them. There is no design
+   system or component layer; a new page matches the look of the pages the
+   site already has (`styleReference`, which shows Claude the homepage or the
+   latest designed page). `scripts/lib/scaffold-templates.js` has the
+   starting bodies. Everything written must work from 360px wide up: mobile
+   first, columns only from `md:` or `lg:` up, no fixed pixel widths.
+   `scripts/lib/design-rules.js` holds the design brief (`DESIGN_RULES`), and
+   every Claude request that writes a page gets it. Page writing streams the
+   reply at `high` effort with room for 64000 tokens (`PAGE_MAX_TOKENS` in
+   `lib/claude-writer.js`).
 5. **Run `npm run check` before saying you are done.** It builds and then fails
    on broken internal links and duplicate URLs.
 6. **Markdown bodies are templated first, then rendered.** `{{ site.contact.email }}`
@@ -196,8 +202,7 @@ the search index all update on the next build. Nothing else needs touching.
 | Headline stats | `content/data/company.json` |
 | FAQ entries | `content/data/faq.json` |
 | The homepage | `content/pages/home.md` (`url: /`). It's an ordinary page with the `page` layout, so its body is what it shows. Older copies have a `home` layout fed by `content/data/home.json` |
-| Colours, type scale, fonts | `styles/main.css` → `@theme` |
-| A repeated visual pattern | `styles/main.css` → `@layer components` (read the guidelines first) |
+| The site's font and accent colour | `styles/main.css` → `@theme` (`--font-sans`, loaded in `base.html`; `--color-brand`) |
 | Page shell, meta tags, schema | `templates/partials/base.html` (renders `page.seo`), `scripts/lib/seo.js`, `scripts/lib/schema.js` |
 | Title format, X handle, search console verification | `site.config.json` → `seo` (see "Search engine optimisation" below) |
 | A page's structure | The page's own body. Old copies' per-type layouts in `templates/layouts/` |
@@ -540,11 +545,13 @@ The model is `TWINSTACK_MODEL` when set (the Twinstack web app passes the accoun
 model), otherwise `site.config.json` → `automation.model` (`claude-opus-5-5`); each script
 reads it into `CLAUDE_MODEL`. Every request
 goes through `modelOptions` in `lib/claude-writer.js` (copied into `edit-md.js` and
-`seo.js`, which the web app installs without it): an effort level (`medium`, `low` for
-work-log summaries) on models that take one, and server-side refusal fallbacks
-(`fallbacks: "default"`) on the 5.x models. These models think on every request and
-the thinking counts toward `max_tokens`, so limits leave room for it; requests aren't
-streamed, so keep them at 16000 or less, or a reply can outlast fetch's 5-minute wait.
+`seo.js`, which the web app installs without it): an effort level (`high` for page
+writing, `medium` otherwise, `low` for work-log summaries) on models that take one,
+and server-side refusal fallbacks (`fallbacks: "default"`) on the 5.x models. These
+models think on every request and the thinking counts toward `max_tokens`, so limits
+leave room for it. `requestClaude` streams the reply, so page writing can use
+`PAGE_MAX_TOKENS` (64000); `edit-md.js` and `seo.js` make their own unstreamed
+requests, so keep those at 16000 or less, or a reply can outlast fetch's 5-minute wait.
 
 Run with no `<page>` argument and it works through the queue in
 `scripts/page-commands.json` instead — a list of `{ file, instruction }` jobs,
@@ -553,6 +560,32 @@ to that file by hand any time; `npm run page:edit:list` prints what's pending
 without running anything. A `<page>` argument on the command line always runs
 that one edit immediately and never touches the queue file. Always
 `npm run check` afterwards.
+
+**Design the header and footer with Claude**
+
+```bash
+npm run chrome:design:preview                         # print Claude's header and footer, write nothing
+npm run chrome:design -- "A dark header with the phone number"
+```
+
+`edit-page.js --chrome ["<direction>"]` has Claude design `templates/partials/header.html`
+and `footer.html` together, in one request, in the look of the site's pages
+(`styleReference`). `base.html` puts them around every page, so the result is one design
+across the whole site, and page bodies never draw their own (`BLANK_LAYOUT_RULES`).
+`scripts/lib/chrome.js` holds the brief (`CHROME_RULES`) and the checks: the look is
+Claude's, but everything shown comes from data — the menu, dropdowns, button, footer
+columns and legal links from `content/data/navigation.json`, the logo from
+`nav.appearance.*.logoOnLight`/`logoOnDark`, the copyright, tagline and contact switches
+from `appearance.footer`. These **problems** block the write: a missing file or any lost
+piece of that data, the phone menu's contract with `assets/js/site.js`
+(`data-nav-toggle`, `id="primary-nav"`, `data-open="false"`), the `data-designed="claude"`
+mark, a `<script>`, `page.*` (scaffold-schedule renders the partials with only `site` and
+`nav`), unbalanced blocks or a render error. The reply is two `===== FILE: <path> =====`
+blocks. `--dry-run --proposal-out=` saves a proposal with `"mode": "chrome"`, the header as
+`file`/`content` and the footer in `"files"`; `build.js --proposal` builds them as partial
+overrides and writes `url: "/"`. The work log records `chrome:design`. The Twinstack web app
+detects support by the literal `--chrome` in `edit-page.js`, and hides the header and
+footer style switches when the partials carry `data-designed="claude"`.
 
 **Edit other markdown files with Claude**
 
@@ -715,9 +748,11 @@ so they suit both.
 
 ## CSS
 
-Utilities in templates; `styles/main.css` only for tokens, patterns repeated in
-three or more templates, and markdown output. Brand tokens only — no stock
-Tailwind colours. Full rules in `TAILWIND-GUIDELINES.md`.
+No design system. Pages use any Tailwind utilities (stock palette and arbitrary
+values included) and, when needed, their own `<style>` block scoped to the
+page. `styles/main.css` holds only the font, the `brand` accent, a small base
+layer, `.table-scroll` and the reduced-motion rule. Details in
+`TAILWIND-GUIDELINES.md`.
 
 ## Style
 

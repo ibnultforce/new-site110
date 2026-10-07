@@ -48,11 +48,13 @@ function withBase(html) {
 
 /* ------------------------------------------------------------------- helpers */
 
-function loadTemplates(engine) {
-  for (const [dir, prefix] of [[paths.partials, ''], [paths.layouts, 'layout:']]) {
+/** Every partial and layout; a proposal's header or footer (`overrides`) is used instead of the file. */
+function loadTemplates(engine, overrides) {
+  for (const [dir, prefix, rel] of [[paths.partials, '', 'templates/partials'], [paths.layouts, 'layout:', 'templates/layouts']]) {
     if (!fs.existsSync(dir)) continue;
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.html'))) {
-      engine.add(prefix + file.replace(/\.html$/, ''), fs.readFileSync(path.join(dir, file), 'utf8'));
+      const proposed = overrides?.get(`${rel}/${file}`);
+      engine.add(prefix + file.replace(/\.html$/, ''), proposed ?? fs.readFileSync(path.join(dir, file), 'utf8'));
     }
   }
 }
@@ -90,8 +92,8 @@ function write(file, contents) {
 }
 
 /**
- * The proposal --proposal names: `overrides` (content/ pages and data files, read instead of the
- * files on disk) and `assets` (a converted page's own CSS and scripts, written over the copied
+ * The proposal --proposal names: `overrides` (content/ pages and data files, and a Claude-designed
+ * header or footer under templates/partials/, read instead of the files on disk) and `assets` (a converted page's own CSS and scripts, written over the copied
  * assets/). Anything else in it (a global stylesheet under styles/) doesn't change what's built.
  */
 function loadProposal(file) {
@@ -100,12 +102,12 @@ function loadProposal(file) {
   const assets = [];
   const add = (rel, content) => {
     if (typeof rel !== 'string' || typeof content !== 'string' || rel.split('/').some((seg) => seg === '..' || !seg)) return;
-    if (/^content\/.+\.(md|json)$/.test(rel)) overrides.set(rel, content);
+    if (/^content\/.+\.(md|json)$/.test(rel) || /^templates\/partials\/(header|footer)\.html$/.test(rel)) overrides.set(rel, content);
     else if (rel.startsWith('assets/')) assets.push({ rel, content });
   };
   add(proposal.file, proposal.content);
   for (const extra of Array.isArray(proposal.files) ? proposal.files : []) add(extra?.file, extra?.content);
-  if (!overrides.has(proposal.file)) throw new Error(`${file} isn't a proposal for a page under content/.`);
+  if (!overrides.has(proposal.file)) throw new Error(`${file} isn't a proposal for a page under content/ or for the header and footer.`);
   return { proposal, overrides, assets };
 }
 
@@ -148,7 +150,7 @@ function build() {
   }
 
   const engine = new TemplateEngine();
-  loadTemplates(engine);
+  loadTemplates(engine, pending?.overrides);
 
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });
@@ -310,7 +312,9 @@ function build() {
     for (const { rel, content } of pending.assets) write(rel, content);
     // Where the proposed page is, for whoever shows it (the Twinstack web app's preview).
     const page = all.find((entry) => entry.sourceFile.split(path.sep).join('/') === pending.proposal.file);
-    write('.proposal.json', `${JSON.stringify({ file: pending.proposal.file, url: page?.url ?? null, createdAt: pending.proposal.createdAt ?? null }, null, 2)}\n`);
+    // A header and footer proposal is shown on the homepage.
+    const url = page?.url ?? (pending.proposal.file.startsWith('templates/') ? '/' : null);
+    write('.proposal.json', `${JSON.stringify({ file: pending.proposal.file, url, createdAt: pending.proposal.createdAt ?? null }, null, 2)}\n`);
   }
 
   /* --------------------------------------------------------------- report */

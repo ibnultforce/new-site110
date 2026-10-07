@@ -2,9 +2,12 @@
    Site — Tailwind source
    Compiled to assets/css/main.css by the build. Never edit that file.
 
-   Read TAILWIND-GUIDELINES.md before adding anything here. The short version:
-   templates use utilities, this file holds tokens and the few patterns that
-   repeat in three or more places or that markdown content cannot class itself.
+   There is no design system here. Each page designs itself with Tailwind
+   utilities (any of them: the stock palette, arbitrary values, gradients,
+   shadows, animations) and, when it needs more, its own <style> block. This
+   file only loads Tailwind, sets the site's font and accent colour (used by
+   the header, the footer and any page that wants them), and holds the few
+   rules that keep every page usable. See TAILWIND-GUIDELINES.md.
    ========================================================================== */
 
 @import "tailwindcss" source(none);
@@ -16,197 +19,40 @@
 @source "../content";
 @source "../assets/js";
 
-/* --------------------------------------------------------------- 1. Tokens */
-
+/* The site's identity: one font and one accent colour. Change them freely.
+   Pages use them as font-sans (the default) and bg-brand, text-brand… */
 @theme {
-  /* Brand palette. Every colour in the design is one of these — if you reach
-     for a stock Tailwind colour (slate-700, blue-500) you are off-brand. */
-  --color-ink: #0b1a2e;
-  --color-ink-2: #1e3350;
-  --color-ink-deep: #071426;
-  --color-body: #3a4a61;
-  --color-muted: #64748b;
-  --color-mist: #f1f5fa;
-  --color-line: #dbe3ee;
-  --color-line-strong: #c2cfe0;
-  --color-brand: #1462c4;
-  --color-brand-dark: #0f4e9e;
-  --color-brand-wash: #e8f0fb;
-  --color-signal: #0e7c66;
-  --color-signal-wash: #e3f3ee;
-  --color-onink: #c8d4e4;
-  --color-onink-muted: #9db2cc;
-
-  /* Two families, clearly distinct: Archivo carries headings, Public Sans
-     carries reading text. */
-  --font-display: "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-sans: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-
-  /* Fluid display sizes. Body copy uses the stock Tailwind scale. */
-  --text-hero: clamp(2.2rem, 1.7rem + 2.3vw, 3.7rem);
-  --text-hero--line-height: 1.08;
-  --text-h2: clamp(1.8rem, 1.5rem + 1.3vw, 2.6rem);
-  --text-h2--line-height: 1.12;
-  --text-h3: clamp(1.45rem, 1.3rem + 0.7vw, 1.85rem);
-  --text-h3--line-height: 1.2;
-  --text-lede: clamp(1.1rem, 1.04rem + 0.3vw, 1.3rem);
-  --text-lede--line-height: 1.55;
-
-  --radius-card: 8px;
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-brand: #0f766e;
 }
-
-/* ------------------------------------------------------------ 2. Utilities */
-
-/* The page gutter. Used on every section, so it earns a utility. */
-@utility wrap {
-  width: min(100% - 2.5rem, 80rem);
-  margin-inline: auto;
-}
-
-@utility wrap-narrow {
-  width: min(100% - 2.5rem, 48.75rem);
-  margin-inline: auto;
-}
-
-/* Vertical rhythm for a full-width band. Matches across every section. */
-@utility section-y {
-  padding-block: clamp(3rem, 2rem + 4vw, 4.5rem);
-}
-
-/* ----------------------------------------------------------------- 3. Base */
 
 @layer base {
   html {
     scroll-behavior: smooth;
-    scroll-padding-top: 6rem;
+    scroll-padding-top: 5rem;
   }
 
   body {
-    @apply bg-white font-sans text-[1.0625rem]/[1.65] text-body antialiased;
+    @apply bg-white text-zinc-700 antialiased;
   }
 
-  h1, h2, h3, h4, h5 {
-    @apply font-display font-bold tracking-tight text-ink;
-    text-wrap: balance;
-  }
-
-  /* One visible focus treatment everywhere, including inside prose. */
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-brand;
   }
-
-  ::selection {
-    @apply bg-brand-wash text-ink;
-  }
 }
 
-/* ----------------------------------------------------------- 4. Components */
-
-/* Add here only when a pattern repeats in three or more templates, or when
-   markdown output needs it. Everything else stays as utilities in templates. */
-
-@layer components {
-  /* Buttons ------------------------------------------------------------- */
-  .btn {
-    @apply inline-flex items-center gap-2 rounded font-display text-[1.0625rem] leading-none
-           font-semibold px-5 py-3.5 border border-transparent no-underline cursor-pointer
-           transition-colors duration-150;
-  }
-  .btn-primary { @apply bg-brand text-white hover:bg-brand-dark hover:text-white; }
-  .btn-ghost   { @apply border-line-strong text-ink hover:border-ink; }
-  .btn-light   { @apply bg-white text-ink hover:bg-brand-wash hover:text-ink; }
-  .btn-onink   { @apply border-white/35 text-white hover:border-white hover:text-white; }
-
-  /* Badges -------------------------------------------------------------- */
-  .badge {
-    @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-white
-           px-2.5 py-1 text-sm font-medium text-ink-2;
-  }
-  .badge-live  { @apply border-signal/30 bg-signal-wash text-signal; }
-  .badge-brand { @apply border-brand/25 bg-brand-wash text-brand-dark; }
-  .badge-dot::before {
-    content: "";
-    @apply size-1.5 rounded-full bg-current;
-  }
-
-  /* Cards --------------------------------------------------------------- */
-  .card {
-    @apply flex flex-col gap-2.5 rounded-card border border-line bg-white p-5
-           text-inherit no-underline transition-colors duration-150;
-  }
-  a.card:hover { @apply border-line-strong; }
-
-  /* The responsive grid every card set sits in: 1 column on mobile, 2 from
-     tablet, 3 from desktop. */
-  .card-grid {
-    @apply grid gap-8 sm:grid-cols-2 lg:grid-cols-3;
-  }
-
-  /* The one elevated element in the design: the lifecycle / at-a-glance rail */
-  .rail {
-    @apply overflow-hidden rounded-card border border-line bg-white;
-    box-shadow: 0 24px 60px -34px rgb(11 26 46 / 0.55);
-  }
-  .rail-row {
-    @apply flex items-baseline gap-3.5 border-b border-line px-[1.1rem] py-4 last:border-b-0;
-  }
-
-  /* FAQ: <details> needs real CSS for the marker, so it lives here. */
-  .faq summary {
-    @apply relative cursor-pointer list-none py-5 pr-10 font-display text-lede
-           font-semibold text-ink;
-  }
-  .faq summary::-webkit-details-marker { display: none; }
-  .faq summary::after {
-    content: "+";
-    @apply absolute right-1 top-1/2 -translate-y-1/2 text-2xl font-normal text-brand;
-  }
-  .faq details[open] summary::after { content: "–"; }
-
-  /* Forms --------------------------------------------------------------- */
-  .field-input {
-    @apply w-full rounded border border-line-strong bg-white px-3 py-2.5 text-ink
-           focus:border-brand focus:outline-none;
-  }
+/* Markdown tables are wrapped in .table-scroll by the renderer, so a wide one
+   scrolls instead of pushing the page sideways on a phone. */
+.table-scroll {
+  overflow-x: auto;
 }
 
-/* ------------------------------------------------- 5. Markdown (prose) ---- */
-
-/* Markdown bodies produce HTML we do not write by hand, so the typography
-   plugin styles it. Tuned to the brand rather than left at defaults. */
-@layer components {
-  .prose-site {
-    @apply prose prose-slate max-w-[1280px]
-           prose-headings:font-display prose-headings:tracking-tight prose-headings:text-ink
-           prose-h2:mt-12 prose-h2:text-h3
-           prose-h3:mt-8 prose-h3:text-[1.3rem]
-           prose-p:text-body
-           prose-a:text-brand prose-a:decoration-1 prose-a:underline-offset-2
-           hover:prose-a:text-brand-dark
-           prose-strong:text-ink
-           prose-li:marker:text-line-strong
-           prose-blockquote:border-l-brand prose-blockquote:not-italic
-           prose-blockquote:text-ink-2 prose-blockquote:font-normal
-           prose-code:rounded prose-code:border prose-code:border-line
-           prose-code:bg-mist prose-code:px-1.5 prose-code:py-0.5
-           prose-code:font-normal prose-code:text-ink
-           prose-pre:bg-ink prose-pre:text-[0.9rem]
-           prose-th:font-display prose-th:text-ink prose-th:border-line-strong
-           prose-td:align-top prose-img:rounded;
+/* Pages may animate; people who ask their system for less motion get none. */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
-  /* The typography plugin adds quotes around inline code; we do not want them. */
-  .prose-site :where(code):not(:where([class~="not-prose"] *))::before,
-  .prose-site :where(code):not(:where([class~="not-prose"] *))::after {
-    content: none;
-  }
-  .prose-wide { @apply max-w-[1280px]; }
-
-  /* Wide markdown tables scroll instead of pushing the page sideways. */
-  .table-scroll { @apply overflow-x-auto; }
-}
-
-/* ------------------------------------------------------------- 6. Printing */
-
-@media print {
-  .site-header, .site-footer, .cta-band, .toc { display: none; }
 }

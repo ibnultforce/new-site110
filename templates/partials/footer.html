@@ -1,40 +1,40 @@
 <footer data-theme="{{ nav.appearance.footer.theme }}" data-tone="{{ nav.appearance.footer.tone }}"
-        class="site-footer group/footer bg-ink-deep pt-18 pb-8 text-[0.94rem] text-onink-muted
-               data-[theme=brand]:bg-brand data-[theme=brand]:text-brand-wash
-               data-[theme=light]:border-t data-[theme=light]:border-line data-[theme=light]:bg-mist data-[theme=light]:text-muted">
-  <div class="wrap">
-    <div class="grid gap-12 md:grid-cols-2 lg:grid-flow-col lg:grid-cols-[1.3fr] lg:auto-cols-fr">
-      <div class="flex flex-col gap-4">
-        <a href="/" class="inline-flex items-center gap-2 font-display text-xl font-bold tracking-tight text-white no-underline group-data-[tone=light]/footer:text-ink">
-          {{# if nav.appearance.footer.logo }}<img src="{{ nav.appearance.footer.logo }}" alt="{{ site.brand.logoText }}" class="block h-9 w-auto max-w-55 object-contain">{{ else }}
-          <img src="{{ site.brand.logoMark }}" alt="" width="26" height="26" class="size-6.5">
+        class="site-footer group/footer bg-zinc-950 pb-10 pt-20 text-sm text-zinc-400
+               data-[theme=brand]:bg-brand data-[theme=brand]:text-white/75
+               data-[theme=light]:border-t data-[theme=light]:border-zinc-200 data-[theme=light]:bg-zinc-50 data-[theme=light]:text-zinc-500">
+  <div class="mx-auto w-full max-w-7xl px-5 sm:px-8">
+    <div class="grid gap-12 md:grid-cols-2 lg:grid-flow-col lg:grid-cols-[1.4fr] lg:auto-cols-fr">
+      <div class="flex flex-col gap-5">
+        <a href="/" class="inline-flex items-center gap-2.5 text-[1.05rem] font-semibold tracking-tight text-white no-underline group-data-[tone=light]/footer:text-zinc-950">
+          {{# if nav.appearance.footer.logo }}<img src="{{ nav.appearance.footer.logo }}" alt="{{ site.brand.logoText }}" class="block h-8 w-auto max-w-52 object-contain">{{ else }}
+          <img src="{{ site.brand.logoMark }}" alt="" width="28" height="28" class="size-7 rounded-lg">
           {{ site.brand.logoText }}{{/ if }}
         </a>
-        {{# if nav.appearance.footer.showTagline }}{{# if site.footerTagline }}<p class="max-w-[34ch]">{{ site.footerTagline }}{{# if site.foundedYear }} Since {{ site.foundedYear }}.{{/ if }}</p>{{/ if }}{{/ if }}
+        {{# if nav.appearance.footer.showTagline }}{{# if site.footerTagline }}<p class="max-w-[36ch] leading-relaxed">{{ site.footerTagline }}{{# if site.foundedYear }} Since {{ site.foundedYear }}.{{/ if }}</p>{{/ if }}{{/ if }}
         {{# if nav.appearance.footer.showContact }}
-        <p>
-          {{# if site.contact.email }}<a href="mailto:{{ site.contact.email }}" class="text-[#b9cbe2] no-underline hover:text-white hover:underline group-data-[theme=brand]/footer:text-white group-data-[tone=light]/footer:text-ink-2 group-data-[tone=light]/footer:hover:text-brand">{{ site.contact.email }}</a><br>{{/ if }}
-          {{# if site.contact.whatsappUrl }}<a href="{{ site.contact.whatsappUrl }}" class="text-[#b9cbe2] no-underline hover:text-white hover:underline group-data-[theme=brand]/footer:text-white group-data-[tone=light]/footer:text-ink-2 group-data-[tone=light]/footer:hover:text-brand">{{ site.contact.whatsapp }}</a>{{/ if }}
+        <p class="flex flex-col gap-1.5">
+          {{# if site.contact.email }}<a href="mailto:{{ site.contact.email }}" class="w-fit text-zinc-300 no-underline transition-colors hover:text-white group-data-[theme=brand]/footer:text-white group-data-[tone=light]/footer:text-zinc-700 group-data-[tone=light]/footer:hover:text-zinc-950">{{ site.contact.email }}</a>{{/ if }}
+          {{# if site.contact.whatsappUrl }}<a href="{{ site.contact.whatsappUrl }}" class="w-fit text-zinc-300 no-underline transition-colors hover:text-white group-data-[theme=brand]/footer:text-white group-data-[tone=light]/footer:text-zinc-700 group-data-[tone=light]/footer:hover:text-zinc-950">{{ site.contact.whatsapp }}</a>{{/ if }}
         </p>
         {{/ if }}
       </div>
 
       {{# each nav.footer }}
       <div>
-        <h5 class="mb-3.5 font-display text-[0.9rem] text-white group-data-[tone=light]/footer:text-ink">{{ title }}</h5>
-        <ul class="grid gap-2">
+        <h5 class="mb-4 text-xs font-semibold uppercase tracking-[0.14em] text-white/90 group-data-[tone=light]/footer:text-zinc-950">{{ title }}</h5>
+        <ul class="grid gap-2.5">
           {{# each links }}
-          <li><a href="{{ url }}"{{# if external }} target="_blank" rel="noopener"{{/ if }} class="text-[#b9cbe2] no-underline hover:text-white hover:underline group-data-[theme=brand]/footer:text-white group-data-[tone=light]/footer:text-ink-2 group-data-[tone=light]/footer:hover:text-brand">{{ label }}</a></li>
+          <li><a href="{{ url }}"{{# if external }} target="_blank" rel="noopener"{{/ if }} class="text-zinc-400 no-underline transition-colors hover:text-white group-data-[theme=brand]/footer:text-white/80 group-data-[theme=brand]/footer:hover:text-white group-data-[tone=light]/footer:text-zinc-600 group-data-[tone=light]/footer:hover:text-zinc-950">{{ label }}</a></li>
           {{/ each }}
         </ul>
       </div>
       {{/ each }}
     </div>
 
-    <div class="mt-12 flex flex-wrap justify-between gap-5 border-t border-white/12 pt-5 text-[0.87rem] group-data-[theme=brand]/footer:border-white/25 group-data-[tone=light]/footer:border-line">
+    <div class="mt-16 flex flex-col gap-4 border-t border-white/10 pt-6 text-[0.8rem] sm:flex-row sm:items-center sm:justify-between group-data-[theme=brand]/footer:border-white/20 group-data-[tone=light]/footer:border-zinc-200">
       <p>© {{ site.year }} {{# if nav.appearance.footer.copyright }}{{ nav.appearance.footer.copyright }}{{ else }}{{ site.name }}. All rights reserved.{{/ if }}</p>
-      <ul class="flex gap-5">
-        {{# each nav.legal }}<li><a href="{{ url }}" class="text-[#b9cbe2] no-underline hover:text-white hover:underline group-data-[theme=brand]/footer:text-white group-data-[tone=light]/footer:text-ink-2 group-data-[tone=light]/footer:hover:text-brand">{{ label }}</a></li>{{/ each }}
+      <ul class="flex flex-wrap gap-5">
+        {{# each nav.legal }}<li><a href="{{ url }}" class="text-zinc-400 no-underline transition-colors hover:text-white group-data-[theme=brand]/footer:text-white/80 group-data-[theme=brand]/footer:hover:text-white group-data-[tone=light]/footer:text-zinc-600 group-data-[tone=light]/footer:hover:text-zinc-950">{{ label }}</a></li>{{/ each }}
       </ul>
     </div>
   </div>
