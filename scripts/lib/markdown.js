@@ -120,7 +120,7 @@ export function renderInline(input) {
       `<img src="${src}" alt="${alt}" loading="lazy" decoding="async"${title ? ` title="${title}"` : ''}>`);
 
   text = text.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (_, label, href, title) => {
-    const external = /^https?:\/\//.test(href) && !href.includes('twinstack.net');
+    const external = /^https?:\/\//.test(href);
     const attrs = [`href="${href}"`];
     if (title) attrs.push(`title="${title}"`);
     if (external) attrs.push('target="_blank"', 'rel="noopener"');
@@ -241,10 +241,16 @@ export function renderMarkdown(source) {
       continue;
     }
 
-    // raw html block
-    if (/^<(\/?)([a-zA-Z][\w-]*)/.test(line.trim())) {
+    // raw html block (a tag or an HTML comment; a comment may span blank lines)
+    if (/^<(!--|\/?[a-zA-Z][\w-]*)/.test(line.trim())) {
       const buffer = [];
-      while (i < lines.length && !isBlank(lines[i])) buffer.push(lines[i++]);
+      while (i < lines.length && !isBlank(lines[i])) {
+        if (lines[i].lastIndexOf('<!--') > lines[i].lastIndexOf('-->')) {
+          while (i < lines.length && !lines[i].includes('-->', lines[i].lastIndexOf('<!--'))) buffer.push(lines[i++]);
+          if (i >= lines.length) break;
+        }
+        buffer.push(lines[i++]);
+      }
       out.push(buffer.join('\n'));
       continue;
     }

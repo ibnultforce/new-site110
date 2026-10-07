@@ -8,7 +8,9 @@ Instructions for Claude (or any agent) asked to change this site.
 
 ## What this is
 
-A static site generator for twinstack.net. Content is markdown with
+A static site generator: the template a new site starts from, so it holds no
+company's details (`site.config.json` starts with neutral placeholders and empty
+contact fields, which the templates leave out). Content is markdown with
 frontmatter, templates are logic-light HTML styled with Tailwind, everything
 else is derived. Node 18+ and one `npm install` (Tailwind only) are the
 requirements — no framework, no bundler.
@@ -82,8 +84,8 @@ page; both always run over the whole site.
 2. `lib/template.js` is a tiny dependency-free logic-light engine (`{{ value }}`,
    `{{{ raw }}}`, `{{#if}}`/`{{#unless}}`, `{{#each}}`, `{{> partial}}`,
    `{{> [value] }}` to include a partial named by a looked-up value instead of a
-   literal — how `content/data/home.json` picks which partial renders each
-   homepage section). Name lookup walks the whole context stack, so a partial or `{{#each}}` block
+   literal — how a data file's list of sections can pick which partial renders
+   each one). Name lookup walks the whole context stack, so a partial or `{{#each}}` block
    reaches `site`/`nav`/`page` without prop drilling. Every
    `templates/partials/*.html` is registered by filename; every
    `templates/layouts/*.html` is registered as `layout:<name>`.
@@ -157,7 +159,7 @@ build time.
    and `{{> stats }}` work inside content files. Escape literal braces if a post
    needs to show template syntax.
 6. **Do not invent facts.** Statistics, client names, release numbers and
-   Salesforce behaviour need a source. If unsure, describe the shape of the
+   claims about how a product or platform behaves need a source. If unsure, describe the shape of the
    thing rather than quantifying it.
 7. **Read `knowledge/notes.md` and `knowledge/work-log.md` before changing
    content.** They hold the owner's standing instructions and what earlier
@@ -184,7 +186,7 @@ the search index all update on the next build. Nothing else needs touching.
 | Header and footer look | `content/data/navigation.json` → `appearance`: `header` `theme` (`light`/`dark`/`brand`), `layout` (`right`/`center`/`left`: where the menu sits), `sticky`; `footer` `theme` (`dark`/`light`/`brand`), `showTagline`, `showContact`, `copyright` (after `© <year>`; empty = site name, "All rights reserved."). `navAppearance` in `lib/content.js` checks and defaults them into `nav.appearance` (on `nav`, not `data`, because `scaffold-schedule.js` renders the partials with only `site` and `nav`), adding `tone` and the `logo` for that background. `header.html`/`footer.html` put `theme`/`tone`/`layout` in data attributes and style them with `group-data-[…]/header` variants, since templates can't compare values. The Twinstack web app detects support by `nav.appearance` in both partials and `navAppearance` in `content.js` |
 | Headline stats | `content/data/company.json` |
 | FAQ entries | `content/data/faq.json` |
-| Homepage sections — which appear, in what order, their copy | `content/data/home.json` (each entry names a `partial` from `templates/partials/`; add a new partial and reference it here to add a new kind of section, no layout edit needed) |
+| The homepage | `content/pages/home.md` (`url: /`). It's an ordinary page with the `page` layout, so its body is what it shows. Older copies have a `home` layout fed by `content/data/home.json` |
 | Colours, type scale, fonts | `styles/main.css` → `@theme` |
 | A repeated visual pattern | `styles/main.css` → `@layer components` (read the guidelines first) |
 | Page shell, meta tags, schema | `templates/partials/base.html` (renders `page.seo`), `scripts/lib/seo.js`, `scripts/lib/schema.js` |
@@ -218,18 +220,17 @@ looks truncated, drops a required frontmatter field, or has unbalanced
 
 A content page whose layout reads shared data (`pageSources`: `data.<name>` in
 its layout and the partials it includes, by name or through a data file's
-`"partial"` fields) is edited together with that data. The homepage is the
-main case: its layout shows the hero from `home.md`'s frontmatter and the
-sections listed in `content/data/home.json`, never `home.md`'s body. Claude
+`"partial"` fields) is edited together with that data. (The template's
+homepage is an ordinary page; in older copies its `home` layout shows the
+sections listed in `content/data/home.json`, never `home.md`'s body.) Claude
 then gets the page, those `content/data/*.json` files and the templates for
 reference, and returns each file it changes in a `===== FILE: <path> =====`
 block (`buildPageEditPrompts`, `readPageEditReply`). A data file must stay
 valid JSON and a section may only name a partial that exists; the changed data
 files go in the proposal's `"files"` and are written with the page. The
 `section-content` partial shows the page's body as a section, which is how
-free-form content gets onto the homepage: list
-`{ "partial": "section-content", "heading": … }` in `home.json` where it
-should appear.
+free-form content gets onto such a page: list
+`{ "partial": "section-content", "heading": … }` where it should appear.
 
 **Write a page yourself, then let Claude finish it**
 
@@ -701,5 +702,5 @@ Tailwind colours. Full rules in `TAILWIND-GUIDELINES.md`.
 ## Style
 
 British spelling. Sentence case headings. Plain verbs. No exclamation marks, no
-"unlock", "seamless", "game-changing" or "dive in". Claims about Salesforce
-behaviour should be ones an admin could verify in an org.
+"unlock", "seamless", "game-changing" or "dive in". Claims about how a product
+or platform behaves should be ones a reader could verify.

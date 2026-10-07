@@ -3,24 +3,6 @@
   "header": {
     "items": [
       {
-        "label": "Products",
-        "url": "/products.html",
-        "type": "collection",
-        "collection": "products",
-        "limit": 8
-      },
-      {
-        "label": "Services",
-        "url": "/services.html",
-        "type": "collection",
-        "collection": "services",
-        "limit": 8
-      },
-      {
-        "label": "Case studies",
-        "url": "/case-studies.html"
-      },
-      {
         "label": "Blog",
         "url": "/blog.html"
       },
@@ -36,64 +18,19 @@
   },
   "footer": [
     {
-      "title": "Products",
+      "title": "Pages",
       "links": [
         {
-          "type": "collection",
-          "collection": "products",
-          "limit": 6
-        }
-      ]
-    },
-    {
-      "title": "Services",
-      "links": [
-        {
-          "type": "collection",
-          "collection": "services",
-          "limit": 6
-        }
-      ]
-    },
-    {
-      "title": "Company",
-      "links": [
-        {
-          "label": "About TwinStack",
+          "label": "About",
           "url": "/about.html"
-        },
-        {
-          "label": "Case studies",
-          "url": "/case-studies.html"
         },
         {
           "label": "Blog",
           "url": "/blog.html"
         },
         {
-          "label": "FAQ",
-          "url": "/faq.html"
-        },
-        {
           "label": "Contact",
           "url": "/contact.html"
-        }
-      ]
-    },
-    {
-      "title": "Elsewhere",
-      "links": [
-        {
-          "label": "AppExchange listing",
-          "url": "https://appexchange.salesforce.com/appxConsultingListingDetail?listingId=a0NHu00000ozjVfMAI"
-        },
-        {
-          "label": "LinkedIn",
-          "url": "https://www.linkedin.com/company/twinforce-solutions"
-        },
-        {
-          "label": "YouTube",
-          "url": "https://www.youtube.com/@TwinStackSolutions-sf"
         },
         {
           "label": "RSS feed",

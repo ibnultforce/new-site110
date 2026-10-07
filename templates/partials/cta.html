@@ -6,13 +6,13 @@
     </div>
     <div class="flex flex-col gap-5">
       <div class="flex flex-wrap gap-3.5">
-        <a class="btn btn-light" href="{{ site.contact.bookingUrl }}" target="_blank" rel="noopener">{{ site.contact.bookingLabel }}</a>
+        {{# if site.contact.bookingUrl }}<a class="btn btn-light" href="{{ site.contact.bookingUrl }}" target="_blank" rel="noopener">{{ site.contact.bookingLabel }}</a>{{/ if }}
         {{# if pageUrls.contact }}<a class="btn btn-onink" href="{{ pageUrls.contact }}">Contact page</a>{{/ if }}
       </div>
       <p class="text-onink-muted">
-        <a href="mailto:{{ site.contact.email }}" class="text-[#9fc4ee] no-underline hover:underline">{{ site.contact.email }}</a> ·
-        <a href="{{ site.contact.whatsappUrl }}" class="text-[#9fc4ee] no-underline hover:underline">WhatsApp</a><br>
-        {{ site.contact.responseTime }}
+        {{# if site.contact.email }}<a href="mailto:{{ site.contact.email }}" class="text-[#9fc4ee] no-underline hover:underline">{{ site.contact.email }}</a>{{/ if }}
+        {{# if site.contact.whatsappUrl }}{{# if site.contact.email }} · {{/ if }}<a href="{{ site.contact.whatsappUrl }}" class="text-[#9fc4ee] no-underline hover:underline">WhatsApp</a>{{/ if }}
+        {{# if site.contact.responseTime }}<br>{{ site.contact.responseTime }}{{/ if }}
       </p>
     </div>
   </div>

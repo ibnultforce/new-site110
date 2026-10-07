@@ -153,7 +153,6 @@ function resolveNode(rawPath, site, dirSlugMap) {
       file: 'content/pages/home.md',
       slug: 'home',
       urlOverride: '/',
-      layout: 'home',
       title: site.tagline || site.name,
     };
   }

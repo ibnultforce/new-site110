@@ -6,10 +6,10 @@ export function buildJsonLd({ site, page, faqItems = [] }) {
     '@id': `${site.url}/#organization`,
     name: site.name,
     url: site.url,
-    email: site.contact.email,
-    foundingDate: String(site.foundedYear),
-    description: site.description,
-    sameAs: Object.values(site.social).filter(Boolean),
+    ...(site.contact?.email && { email: site.contact.email }),
+    ...(site.foundedYear && { foundingDate: String(site.foundedYear) }),
+    ...(site.description && { description: site.description }),
+    sameAs: Object.values(site.social || {}).filter(Boolean),
     // The full logo when the site has one uploaded, else the mark.
     logo: `${site.url}${site.brand?.logo || site.brand?.logoMark || ''}`,
   };
@@ -43,7 +43,6 @@ export function buildJsonLd({ site, page, faqItems = [] }) {
       name: page.title,
       description: page.description,
       applicationCategory: 'BusinessApplication',
-      operatingSystem: 'Salesforce',
       url: page.absoluteUrl,
       offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
       publisher: { '@id': `${site.url}/#organization` },
@@ -55,7 +54,7 @@ export function buildJsonLd({ site, page, faqItems = [] }) {
       '@type': 'Service',
       name: page.title,
       description: page.description,
-      serviceType: page.serviceType || 'Salesforce consulting',
+      ...(page.serviceType && { serviceType: page.serviceType }),
       provider: { '@id': `${site.url}/#organization` },
       areaServed: page.areaServed || 'Worldwide',
     });

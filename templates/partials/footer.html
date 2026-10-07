@@ -10,11 +10,11 @@
           <img src="{{ site.brand.logoMark }}" alt="" width="26" height="26" class="size-6.5">
           {{ site.brand.logoText }}{{/ if }}
         </a>
-        {{# if nav.appearance.footer.showTagline }}<p class="max-w-[34ch]">{{ site.footerTagline }} Since {{ site.foundedYear }}.</p>{{/ if }}
+        {{# if nav.appearance.footer.showTagline }}{{# if site.footerTagline }}<p class="max-w-[34ch]">{{ site.footerTagline }}{{# if site.foundedYear }} Since {{ site.foundedYear }}.{{/ if }}</p>{{/ if }}{{/ if }}
         {{# if nav.appearance.footer.showContact }}
         <p>
-          <a href="mailto:{{ site.contact.email }}" class="text-[#b9cbe2] no-underline hover:text-white hover:underline group-data-[theme=brand]/footer:text-white group-data-[tone=light]/footer:text-ink-2 group-data-[tone=light]/footer:hover:text-brand">{{ site.contact.email }}</a><br>
-          <a href="{{ site.contact.whatsappUrl }}" class="text-[#b9cbe2] no-underline hover:text-white hover:underline group-data-[theme=brand]/footer:text-white group-data-[tone=light]/footer:text-ink-2 group-data-[tone=light]/footer:hover:text-brand">{{ site.contact.whatsapp }}</a>
+          {{# if site.contact.email }}<a href="mailto:{{ site.contact.email }}" class="text-[#b9cbe2] no-underline hover:text-white hover:underline group-data-[theme=brand]/footer:text-white group-data-[tone=light]/footer:text-ink-2 group-data-[tone=light]/footer:hover:text-brand">{{ site.contact.email }}</a><br>{{/ if }}
+          {{# if site.contact.whatsappUrl }}<a href="{{ site.contact.whatsappUrl }}" class="text-[#b9cbe2] no-underline hover:text-white hover:underline group-data-[theme=brand]/footer:text-white group-data-[tone=light]/footer:text-ink-2 group-data-[tone=light]/footer:hover:text-brand">{{ site.contact.whatsapp }}</a>{{/ if }}
         </p>
         {{/ if }}
       </div>

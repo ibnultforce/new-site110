@@ -1,40 +1,4 @@
 {
   "_comment": "Site-wide FAQ. Pages can render all of it, or filter by topic in their own frontmatter.",
-  "items": [
-    {
-      "topic": "services",
-      "question": "Do you support custom Salesforce implementations as well as products?",
-      "answer": "Yes. Alongside ISV product work we build custom Apex, Lightning Web Components and Flow automation for teams running their own org."
-    },
-    {
-      "topic": "pdo",
-      "question": "What does a PDO actually do?",
-      "answer": "A Product Development Outsourcer is a Salesforce-authorised partner that builds AppExchange apps on behalf of an ISV: architecture, development, Security Review and packaging, up to the point your listing goes live."
-    },
-    {
-      "topic": "pdo",
-      "question": "How long does Security Review take?",
-      "answer": "Plan for four to eight weeks from submission, depending on queue length and how many findings come back. Preparation is what shortens it, so we run the scanner and fix findings before we submit."
-    },
-    {
-      "topic": "products",
-      "question": "Are your AppExchange products really free?",
-      "answer": "Google Form Auto Sync, Smart Lookup Data Loader and Who Sees What are free managed packages with no user cap and no payment step."
-    },
-    {
-      "topic": "services",
-      "question": "Can you migrate our data from HubSpot to Salesforce?",
-      "answer": "Yes. We handle end-to-end migration: audit, field mapping, sanitisation, dry runs and a reconciliation report so you can prove nothing was lost."
-    },
-    {
-      "topic": "engagement",
-      "question": "How do engagements usually start?",
-      "answer": "With a free 30-minute call. If it looks like a fit we scope a paid discovery, then move to a fixed-scope build or a monthly retainer."
-    },
-    {
-      "topic": "engagement",
-      "question": "Who owns the code you write?",
-      "answer": "You do. Repositories, packaging org access and deployment pipelines are handed over at the end of the engagement."
-    }
-  ]
+  "items": []
 }

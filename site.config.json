@@ -1,34 +1,37 @@
 {
-  "name": "TwinStack Solutions",
-  "shortName": "TwinStack",
-  "url": "https://twinstack.net",
-  "tagline": "Premier Salesforce PDO Partner",
-  "footerTagline": "Salesforce product development, Security Review and data work for ISVs, charities and businesses.",
-  "description": "TwinStack Solutions is a Salesforce Product Development Outsourcer. We architect, build and pass Security Review for B2B ISV partners launching on the AppExchange.",
+  "name": "My Website",
+  "shortName": "My Website",
+  "url": "https://example.com",
+  "tagline": "",
+  "footerTagline": "",
+  "description": "",
   "language": "en",
   "locale": "en_US",
-  "foundedYear": 2018,
+  "foundedYear": "",
   "themeColor": "#0B1A2E",
   "brand": {
-    "logoText": "TwinStack",
+    "logoText": "My Website",
     "logo": "",
     "logoDark": "",
-    "logoMark": "/assets/img/twinstack-mark.svg",
+    "logoMark": "/assets/img/logo-mark.svg",
     "favicon": "",
     "defaultOgImage": "/assets/img/og-default.svg"
   },
   "contact": {
-    "email": "info@twinstack.net",
-    "whatsapp": "+880 1556-777043",
-    "whatsappUrl": "https://wa.me/8801556777043",
-    "bookingUrl": "https://calendar.app.google/HP3LiuNFisCt6xLo6",
-    "bookingLabel": "Book a free 30-minute call",
-    "responseTime": "We reply within one business day."
+    "email": "",
+    "whatsapp": "",
+    "whatsappUrl": "",
+    "bookingUrl": "",
+    "bookingLabel": "Book a call",
+    "responseTime": ""
   },
   "social": {
-    "linkedin": "https://www.linkedin.com/company/twinforce-solutions",
-    "youtube": "https://www.youtube.com/@TwinStackSolutions-sf",
-    "appexchange": "https://appexchange.salesforce.com/appxConsultingListingDetail?listingId=a0NHu00000ozjVfMAI"
+    "linkedin": "",
+    "x": "",
+    "facebook": "",
+    "instagram": "",
+    "youtube": "",
+    "github": ""
   },
   "collections": {
     "pages": {
@@ -76,21 +79,11 @@
         "label": "Case studies",
         "url": "/case-studies.html"
       }
-    },
-    "hello": {
-      "dir": "content/hello",
-      "urlPattern": "/hello/:slug.html",
-      "layout": "hello",
-      "sort": "order",
-      "index": {
-        "label": "Hello",
-        "url": "/hello"
-      }
     }
   },
   "deploy": {
     "provider": "github-pages",
-    "cname": "twinstack.net",
+    "cname": "",
     "branch": "main",
     "outputDir": "dist"
   },
@@ -103,6 +96,6 @@
   },
   "automation": {
     "model": "claude-sonnet-4-6",
-    "defaultAuthor": "TwinStack Team"
+    "defaultAuthor": ""
   }
 }

@@ -47,7 +47,7 @@ export function itemLayoutTemplate(label) {
 
 <section class="section-y border-t border-line">
   <div class="wrap">
-    <div class="prose-twinstack prose-wide">{{{ page.content }}}</div>
+    <div class="prose-site prose-wide">{{{ page.content }}}</div>
   </div>
 </section>
 
@@ -75,7 +75,7 @@ export function listLayoutTemplate(name, label) {
       </article>
       {{/ each }}
     </div>
-    {{# if page.content }}<div class="prose-twinstack mt-18">{{{ page.content }}}</div>{{/ if }}
+    {{# if page.content }}<div class="prose-site mt-18">{{{ page.content }}}</div>{{/ if }}
   </div>
 </section>
 

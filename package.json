@@ -2,7 +2,7 @@
   "name": "twinstack-site",
   "version": "1.0.0",
   "private": true,
-  "description": "TwinStack Solutions website: a zero-dependency static site generator with Claude-managed content automation.",
+  "description": "Website template: a zero-dependency static site generator with Claude-managed content automation.",
   "type": "module",
   "engines": {
     "node": ">=18"

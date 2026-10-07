@@ -1,6 +1,6 @@
-# TwinStack Solutions — website
+# Site template
 
-Static site generator for twinstack.net. Markdown in, HTML out. No framework,
+A starting point for a new website: a static site generator. Markdown in, HTML out. No framework,
 no bundler — Node 18+ and one `npm install` (Tailwind only).
 
 ```bash
@@ -89,5 +89,5 @@ creating the file — no other file needs to change.
 
 ## More
 
-`TAILWIND-GUIDELINES.md` (styling) · `EVERYTHING-YOU-NEED.md` (deploy,
-credentials, scheduled content) · `CLAUDE.md` (rules for AI-assisted edits).
+`TAILWIND-GUIDELINES.md` (styling) · `scripts/scaffold-schedule.md` (scheduled
+content) · `CLAUDE.md` (rules for AI-assisted edits, deployment).

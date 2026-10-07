@@ -5,7 +5,7 @@
  */
 
 /** type is one of: pages, products, services, blog, caseStudies */
-export function scaffoldBody(type, { title, today, draft = false, defaultAuthor = 'TwinStack Team' }) {
+export function scaffoldBody(type, { title, today, draft = false, defaultAuthor = '' }) {
   const draftLine = draft ? 'draft: true\n' : '';
 
   const TEMPLATES = {
@@ -27,8 +27,8 @@ Replace this with the real content.
 title: ${title}
 tagline: One line on what it does, in the user's words.
 order: 50
-badge: Live on AppExchange
-price: Free
+badge:
+price:
 logo:
 installUrl:
 heroHeading: ${title}
@@ -42,7 +42,7 @@ facts:
     value:
     note:
   - label: Price
-    value: Free
+    value:
 capabilities:
   - title: Capability one
     body: What it does and why that matters.
@@ -83,7 +83,7 @@ ${draftLine}---
     blog: `---
 title: ${title}
 date: ${today}
-category: Admin
+category:
 author: ${defaultAuthor}
 tags: []
 relatedProduct:

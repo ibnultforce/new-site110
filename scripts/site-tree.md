@@ -8,28 +8,10 @@ A line whose path ends in `.css` (e.g. `- css/style.css`) declares a global styl
 
 A path without an extension (`- thank-you`) is the page `thank-you.html`, a path listed twice is scaffolded once, and a folder heading (`- css/`) is ignored. Header and footer links to pages that aren't in the site are left out when the site is built; change them in `content/data/navigation.json`.
 
-- index.html 
-- about.html 
+- index.html
+- about.html
 - contact.html
-- faq.html 
-- privacy.html 
-- terms.html 
-- 404.html 
-- products/index.html 
-  - products/google-form-auto-sync.html 
-  - products/smart-lookup-data-loader.html 
-  - products/who-sees-what.html 
-- services/index.html 
-  - services/appexchange-product-development.html 
-  - services/data-migration.html 
-  - services/integrations.html 
-  - services/salesforce-implementation.html 
-  - services/security-review.html
-  - services/who_sees_what/index.html 
-    - services/who_sees_what/how_to_use.html 
-- blog/index.html 
-- case-studies/index.html
-- case-studies/raro/coupon-offer.html
-- case-studies/raro/coupon-offer/monthly.html
-- movies/interstellar.html
-- movies/inception.html
+- privacy.html
+- terms.html
+- 404.html
+- blog/index.html

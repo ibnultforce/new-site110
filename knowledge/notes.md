@@ -13,7 +13,7 @@ appear on the site belong in site.config.json or content/data/, not here.
 
 ## Voice and style
 
-<!-- e.g. - Speak to Salesforce admins, not developers. -->
+<!-- e.g. - Speak to small business owners, not developers. -->
 
 ## Audience
 

@@ -100,21 +100,5 @@ exactly as written.
    `"done": false` (remove `completedDate`) to generate it again from scratch.
 
 ```json
-[
-  {
-    "location": "static/movies",
-    "title": "John Wick",
-    "source": "content/_scheduled/john-wick.html",
-    "date": "2026-09-23",
-    "done": true,
-    "completedDate": "2026-09-23"
-  },
-  {
-    "location": "static/movies",
-    "title": "John Wick 2",
-    "source": "content/_scheduled/john-wick2.html",
-    "date": "2026-09-23",
-    "done": false
-  }
-]
+[]
 ```

@@ -11,7 +11,7 @@
  *   {{> partial-name }}         include templates/partials/partial-name.html
  *   {{> [value] }}              include the partial NAMED by the looked-up value —
  *                                lets a section list in data choose which partial
- *                                renders each entry, e.g. {{# each data.home.sections }}
+ *                                renders each entry, e.g. {{# each data.<file>.sections }}
  *                                {{> [partial] }}{{/ each }} with each entry shaped
  *                                { "partial": "section-products", ... }
  *

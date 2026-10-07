@@ -6,7 +6,7 @@
     <h1 class="text-hero">{{# if page.heroHeading }}{{ page.heroHeading }}{{ else }}{{ page.title }}{{/ if }}</h1>
     <p class="mt-5 mb-8 max-w-[54ch] text-lede text-ink-2">{{ page.tagline }}</p>
     <div class="flex flex-wrap gap-3.5">
-      <a class="btn btn-primary" href="{{ site.contact.bookingUrl }}" target="_blank" rel="noopener">{{ site.contact.bookingLabel }}</a>
+      {{# if site.contact.bookingUrl }}<a class="btn btn-primary" href="{{ site.contact.bookingUrl }}" target="_blank" rel="noopener">{{ site.contact.bookingLabel }}</a>{{ else }}{{# if pageUrls.contact }}<a class="btn btn-primary" href="{{ pageUrls.contact }}">Get in touch</a>{{/ if }}{{/ if }}
       {{# if pageUrls.caseStudies }}<a class="btn btn-ghost" href="{{ pageUrls.caseStudies }}">See related work</a>{{/ if }}
     </div>
   </div>

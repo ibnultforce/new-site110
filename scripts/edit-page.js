@@ -252,10 +252,9 @@ const TEMPLATE_SYNTAX = `TEMPLATE ENGINE SYNTAX (only what exists — do not use
   {{# each list }} … {{/ each }}   inside: {{ this }}, {{ @index }}, {{ @number }}, {{ @first }}, {{ @last }}, {{ @odd }}
   {{> partial-name }}         include templates/partials/partial-name.html
   {{> [value] }}              include the partial NAMED by the looked-up value, not a
-                               literal — e.g. content/data/home.json's homepage section
-                               list has entries like { "partial": "section-products", ... }
-                               and templates/layouts/home.html does
-                               {{# each data.home.sections }}{{> [partial] }}{{/ each }}
+                               literal — e.g. a data file's section list with entries
+                               like { "partial": "section-products", ... } rendered by
+                               {{# each data.<file>.sections }}{{> [partial] }}{{/ each }}
 
 GOTCHA — {{#each}} inside a markdown content file, producing a markdown list:
 Rendering happens BEFORE markdown conversion, so a line break right after
@@ -279,7 +278,7 @@ function contextVariables() {
 const HOUSE_RULES = `HOUSE RULES (from CLAUDE.md — follow these exactly)
 - Never hardcode a fact that appears, or could appear, on more than one page (contact details, stats, FAQ entries). Reference site.*, data.* or a collection instead.
 - Never hand-list content that a collection already provides (products, services, posts, case studies) — loop over the collection with {{#each}}.
-- Do not invent facts: statistics, client names, release numbers, or claims about Salesforce behaviour need to already be true of the codebase you can see. If unsure, describe the shape of the thing rather than quantifying it.
+- Do not invent facts: statistics, client names, release numbers, or claims about how a product or platform behaves need to already be true of the codebase you can see. If unsure, describe the shape of the thing rather than quantifying it.
 - British spelling, sentence case headings, plain verbs. No exclamation marks, no "unlock", "seamless", "game-changing", "dive in".
 - Markdown content files: do not add a leading "# Title" heading — the layout renders the title separately.
 - Utilities belong inline in templates; only touch styles/main.css for tokens or patterns already repeated three or more times elsewhere, and never touch assets/css/main.css (it is compiled output).`;
@@ -331,10 +330,11 @@ const CHROME_PARTIALS = new Set(['base', 'header', 'footer', 'breadcrumbs']);
  * What a content page shows besides its own file, found from its layout: the
  * content/data/*.json files it reads (data.<name>), directly or through the
  * partials it includes, whether named in the template ({{> stats }}) or by a
- * data file ({{> [partial] }} with "partial" fields, the way home.json picks
- * each homepage section). Returns { layout, dataFiles, partials: [{ name,
+ * data file ({{> [partial] }} with "partial" fields, a data-driven list of
+ * sections). Returns { layout, dataFiles, partials: [{ name,
  * source }], showsBody } — showsBody is false when nothing renders the page's
- * own body (the homepage, unless a "section-content" section is listed).
+ * own body (a layout made of data-driven sections, unless a "section-content"
+ * section is listed).
  */
 function pageSources(relFile, original) {
   const layout = layoutFor(relFile, parseFrontmatter(original).data);
