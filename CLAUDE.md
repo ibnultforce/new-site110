@@ -778,7 +778,8 @@ own.
 
 Sites copied from this repo get its changes through the Twinstack web app's one-click update
 (`server/src/site-update.js` there), which installs the newest release: the highest `vX.Y.Z`
-tag. Commits that aren't tagged never reach existing sites.
+tag, which the release workflow creates when `version` changes. Commits after the last release
+don't reach existing sites until the next one.
 
 1. Say who owns each file in `twinstack-update.json`. `site` globs are the owner's and are never
    changed (only added, when a release brings a file the site never had). `template` globs are
@@ -792,7 +793,9 @@ tag. Commits that aren't tagged never reach existing sites.
 3. When a change needs the site's own files in a new shape, add a migration
    (`scripts/migrations/README.md`) and run `npm run migrate` here.
 4. Raise `version`, write `notes` (one plain sentence per change, shown to site owners before
-   they update), commit, then `git tag v<version>` and push the tag.
+   they update), commit and push. `.github/workflows/release.yml` then tags the commit
+   `v<version>` (only in this repo, `DemoProjectDjango/twinstack-site`: change its `if` if the
+   repo moves). Pushes that don't raise the version release nothing.
 
 Each update is one merge commit with a `Twinstack-Update: <version>` trailer, so the changelog
 reads `git log --first-parent`: an update is one entry, not the template's commits. The web app
