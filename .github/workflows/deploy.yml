@@ -35,7 +35,9 @@ jobs:
 
       # Where Pages serves this repo: https://<owner>.github.io/<repo> with base
       # path /<repo>, or the custom domain with no base path once one is set.
+      # The template itself isn't published: it only builds and checks.
       - id: pages
+        if: github.repository != 'DemoProjectDjango/twinstack-site'
         uses: actions/configure-pages@v5
 
       - name: Build site
@@ -50,12 +52,14 @@ jobs:
           SITE_URL: ${{ steps.pages.outputs.base_url }}
           BASE_PATH: ${{ steps.pages.outputs.base_path }}
 
-      - uses: actions/upload-pages-artifact@v3
+      - if: github.repository != 'DemoProjectDjango/twinstack-site'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
     needs: build
+    if: github.repository != 'DemoProjectDjango/twinstack-site'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

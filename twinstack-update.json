@@ -1,8 +1,4 @@
 {
-  "version": "1.0.0",
-  "notes": [
-    "Your site can now be updated with one click, keeping your pages, content and design."
-  ],
   "site": [
     "content/**",
     "site.config.json",
