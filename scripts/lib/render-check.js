@@ -112,14 +112,18 @@ const PSEUDO = ['content', 'display', 'position', 'width', 'height', 'top', 'lef
   'borderTopStyle', 'borderRadius', 'transform', 'opacity', 'color', 'fontSize', 'boxSizing'];
 const HOVER = ['transform', 'boxShadow', 'borderTopColor', 'backgroundColor', 'color', 'paddingLeft', 'opacity', 'textDecorationLine'];
 
-/** Every element under `rootSelector`, in document order, with its box (relative to the root) and computed style. */
+/**
+ * Every element under the roots `rootSelector` matches (the copy's page, and a
+ * copied header and footer around it), in document order, with its box
+ * (relative to the first root) and computed style.
+ */
 function snapshotScript(rootSelector) {
   return `(() => {
-    const root = document.querySelector(${JSON.stringify(rootSelector)});
-    if (!root) return null;
-    const base = root.getBoundingClientRect();
+    const roots = [...document.querySelectorAll(${JSON.stringify(rootSelector)})];
+    if (!roots.length) return null;
+    const base = roots[0].getBoundingClientRect();
     const pick = (cs, list) => Object.fromEntries(list.map((p) => [p, cs[p]]));
-    const all = [...root.querySelectorAll('*')];
+    const all = roots.flatMap((root) => [...root.querySelectorAll('*')]);
     return all.map((el, i) => {
       const r = el.getBoundingClientRect();
       const out = { i, tag: el.tagName.toLowerCase(), cls: (el.getAttribute('class') || '').replace(/(^|\\s)imp-/g, '$1'),
@@ -150,7 +154,7 @@ async function loadAndSnapshot(client, url, width, rootSelector, hoverClasses) {
   const hover = {};
   const { root } = await client.send('DOM.getDocument', { depth: 0 }).then((r) => r.result);
   for (const cls of hoverClasses.slice(0, 25)) {
-    const selector = `${rootSelector} .${cls}, ${rootSelector} .imp-${cls}`;
+    const selector = rootSelector.split(',').map((r) => `${r.trim()} .${cls}, ${r.trim()} .imp-${cls}`).join(', ');
     const found = await client.send('DOM.querySelector', { nodeId: root.nodeId, selector });
     const nodeId = found.result?.nodeId;
     if (!nodeId) continue;
@@ -228,7 +232,7 @@ export async function renderCheck({ originalDoc, convertedDoc, hoverClasses = []
       const passes = [];
       for (const width of widths) {
         const original = await loadAndSnapshot(client, pathToFileURL(originalFile).href, width, 'body', hoverClasses);
-        const converted = await loadAndSnapshot(client, pathToFileURL(convertedFile).href, width, '.imported-page', hoverClasses);
+        const converted = await loadAndSnapshot(client, pathToFileURL(convertedFile).href, width, '.imported-chrome, .imported-page', hoverClasses);
         passes.push({ width, elements: original.elements.length, hovers: Object.keys(original.hover).length, differences: compare(original, converted) });
       }
       return { ran: true, passes };

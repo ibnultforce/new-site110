@@ -188,12 +188,18 @@ function scopeSelector(selector, options) {
   const leading = scripted && !ROOT_COMPOUND.test(rest) ? rootToken.exec(rest)?.[0] : null;
   const state = leading && !leading.includes('#') ? [...leading.matchAll(/\.((?:\\.|[\w-])+)/g)].map((m) => unescape(m[1]).slice(prefix.length)) : [];
   if (state.length && state.every((c) => !classes.has(c) && !rootClasses.has(c)) && rest.slice(leading.length).trim()) {
-    const asRoot = scopeSelector(selector, { ...options, rootClasses: new Set([...rootClasses, ...state]) });
-    return asRoot && { selector: `${asRoot.selector},\n${scope} ${rest}`, root: null };
+    const asRoot = [scopeSelector(selector, { ...options, rootClasses: new Set([...rootClasses, ...state]) })].flat().filter(Boolean);
+    return asRoot.length ? { selector: `${asRoot.map((s) => s.selector).join(',\n')},\n${scope} ${rest}`, root: null } : null;
   }
-  const isRootCompound = (compound) =>
+  const everyToken = (compound, isClass, isId) =>
     [...compound.matchAll(/([.#])((?:\\.|[\w-])+)/g)].every(([, kind, name]) =>
-      kind === '.' ? rootClasses.has(unescape(name).slice(prefix.length)) : rootIds.has(unescape(name)));
+      kind === '.' ? isClass(unescape(name).slice(prefix.length)) : isId(unescape(name)));
+  const isRootCompound = (compound) => everyToken(compound, (c) => rootClasses.has(c), (id) => rootIds.has(id));
+  // A class on the old <html> or <body> that elements inside the page carry too (<html
+  // class="w-full"> and <svg class="w-full">) matched them all, so the rule must as well.
+  const inContent = (compound) => everyToken(compound, (c) => classes.has(c), (id) => ids.has(id));
+  const descendant = `${scope} ${rest}`;
+  let shared = false;
   let scoped = scope;
   let rooted = false;
   let kind = null;
@@ -203,6 +209,7 @@ function scopeSelector(selector, options) {
     const bare = !m && rootToken.exec(rest);
     const compound = m ? m[0] : bare && isRootCompound(bare[0]) ? bare[0] : null;
     if (!compound) break;
+    if (!m && inContent(compound)) shared = true;
     for (const [, sign, name] of compound.matchAll(/([.#])((?:\\.|[\w-])+)/g)) {
       if (sign === '.' && rootClasses.has(unescape(name).slice(prefix.length)) && !scoped.includes(`.${name}`)) scoped += `.${name}`;
     }
@@ -213,8 +220,8 @@ function scopeSelector(selector, options) {
     rooted = true;
   }
   // "body > .x" becomes ".scope > .x", and a plain selector becomes a descendant of the scope.
-  if (rooted && !rest) return { selector: scoped + pseudo, root: pseudo ? null : kind };
-  return { selector: `${scoped} ${rest}`, root: null };
+  const result = rooted && !rest ? { selector: scoped + pseudo, root: pseudo ? null : kind } : { selector: `${scoped} ${rest}`, root: null };
+  return shared ? [result, { selector: descendant, root: null }] : result;
 }
 
 /**
@@ -283,7 +290,9 @@ function rewriteDeclarations(body, options, root) {
   }
   out = scaleRem(out, options.remFactor);
   if (options.keyframes.size) {
-    out = out.replace(/(animation(?:-name)?\s*:\s*)([^;}]+)/gi, (_, prop, value) =>
+    // Custom properties too: Tailwind 4 keeps an animation in one ("--animate-spin: spin 1s
+    // linear infinite") that "animation: var(--animate-spin)" reads.
+    out = out.replace(/((?:animation(?:-name)?|--[\w-]*anim[\w-]*)\s*:\s*)([^;}]+)/gi, (_, prop, value) =>
       prop + value.replace(/[\w-]+/g, (word) => (options.keyframes.has(word) ? options.prefix + word : word)));
   }
   if (root) {
@@ -317,6 +326,18 @@ const layerName = (name, options) => {
   return renamed;
 };
 
+// Properties an element passes to its children, and custom properties.
+const INHERITED = /^(--[\w-]+|color|font(-[\w-]+)?|line-height|letter-spacing|word-spacing|text-(align|indent|transform|shadow|rendering|decoration[\w-]*|underline-offset|wrap)|white-space|direction|visibility|cursor|list-style(-[\w-]+)?|quotes|tab-size|hyphens|overflow-wrap|word-break|caret-color|accent-color|color-scheme|-webkit-font-smoothing|-moz-osx-font-smoothing|-webkit-text-size-adjust|text-size-adjust)$/i;
+
+/** Declarations with only the inherited properties kept. */
+function inheritedOnly(text) {
+  return text
+    .split(';')
+    .filter((decl) => INHERITED.test((/^\s*([\w-]+)\s*:/.exec(decl)?.[1] || '').trim()))
+    .map((decl) => decl.trim())
+    .join(';');
+}
+
 function scopeNodes(nodes, options, imports, warnings) {
   const out = [];
   for (const node of nodes) {
@@ -347,16 +368,19 @@ function scopeNodes(nodes, options, imports, warnings) {
       out.push(`${prelude} {${body}}`);
     } else {
       const scoped = withRootUniversal(splitList(prelude))
-        .map(({ selector, universal }) => {
-          const result = scopeSelector(selector, options);
-          if (result && universal) result.selector = result.selector.replace(options.scope, `:where(${options.scope})`);
-          return result;
-        })
-        .filter(Boolean);
+        .flatMap(({ selector, universal }) => {
+          const results = [scopeSelector(selector, options)].flat().filter(Boolean);
+          if (universal) for (const r of results) r.selector = r.selector.replace(options.scope, `:where(${options.scope})`);
+          return results;
+        });
       if (!scoped.length) continue;
       urlWarnings(body, warnings);
       const root = scoped.every((s) => s.root) ? scoped[0].root : null;
-      const text = rewriteBody(body.trim(), options, root, warnings);
+      let text = rewriteBody(body.trim(), options, root, warnings);
+      // A copied header or footer is only part of the old <body>: it takes what the body passed
+      // down (font, colour…), not its box (a min-height, padding for a fixed bar, a background).
+      if (options.chrome && root && !text.includes('{')) text = inheritedOnly(text);
+      if (options.chrome && root && !text) continue;
       out.push(`${scoped.map((s) => s.selector).join(',\n')} {${text ? ` ${text} ` : ''}}`);
     }
   }
@@ -438,7 +462,7 @@ function keyframeNames(sheets) {
  * them, except `dropClasses`/`dropIds` (the removed header's and footer's).
  * Returns { css, warnings, rules, remFactor }.
  */
-export function scopeCss(sheets, { scope, prefix, classes, ids, rootClasses = new Set(), rootIds = new Set(), reveal = null, hints = [], scripted = false, dropClasses = [], dropIds = [] }) {
+export function scopeCss(sheets, { scope, prefix, classes, ids, rootClasses = new Set(), rootIds = new Set(), reveal = null, hints = [], scripted = false, dropClasses = [], dropIds = [], chrome = false }) {
   const imports = [];
   const warnings = new Set();
   const out = [];
@@ -449,7 +473,7 @@ export function scopeCss(sheets, { scope, prefix, classes, ids, rootClasses = ne
   }
   const options = {
     scope, prefix, classes, ids, rootClasses: roots, rootIds,
-    scripted, dropClasses: new Set(dropClasses), dropIds: new Set(dropIds),
+    scripted, dropClasses: new Set(dropClasses), dropIds: new Set(dropIds), chrome,
     remFactor: rootFontFactor(sheets), keyframes: keyframeNames(sheets), layers: [], htmlValues: htmlDeclarations(sheets),
   };
   let rules = 0;
@@ -468,7 +492,8 @@ export function scopeCss(sheets, { scope, prefix, classes, ids, rootClasses = ne
   // count as styling, which revert would wipe, so every shape would draw at size zero. The <svg>
   // element itself only rolls back what the site's base layer changes (display, vertical-align).
   const isolateRules = [
-    `:where(${scope}) { all: initial; display: block; margin: 8px; }`,
+    // A copied header or footer (`chrome`) is part of the old body, not all of it: no body margin.
+    `:where(${scope}) { all: initial; display: block; margin: ${chrome ? 0 : '8px'}; }`,
     `:where(${scope} *:not(svg, svg *)) { all: revert; }`,
     `:where(${scope} svg) { display: revert; vertical-align: revert; box-sizing: revert; }`,
     `:where(${scope}, ${scope} *)::before, :where(${scope}, ${scope} *)::after { all: revert; }`,

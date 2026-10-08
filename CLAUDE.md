@@ -197,8 +197,8 @@ the search index all update on the next build. Nothing else needs touching.
 | --- | --- |
 | Phone, email, booking link | `site.config.json` → `contact` |
 | Logo, icon, favicon, name | `site.config.json` → `brand`: `logo` (the full logo, in place of the icon and name in the header), `logoDark` (the dark footer's; empty uses `logo`), `logoMark` (the square icon beside `logoText` when there's no logo), `favicon` (empty uses `logoMark`). Empty means not set. The web app uploads them to `assets/img/brand/` |
-| Nav or footer structure | `content/data/navigation.json` |
-| Header and footer look | `content/data/navigation.json` → `appearance`: `header` `theme` (`light`/`dark`/`brand`), `layout` (`right`/`center`/`left`: where the menu sits), `sticky`; `footer` `theme` (`dark`/`light`/`brand`), `showTagline`, `showContact`, `copyright` (after `© <year>`; empty = site name, "All rights reserved."). `navAppearance` in `lib/content.js` checks and defaults them into `nav.appearance` (on `nav`, not `data`, because `scaffold-schedule.js` renders the partials with only `site` and `nav`), adding `tone` and the `logo` for that background. `header.html`/`footer.html` put `theme`/`tone`/`layout` in data attributes and style them with `group-data-[…]/header` variants, since templates can't compare values. The Twinstack web app detects support by `nav.appearance` in both partials and `navAppearance` in `content.js` |
+| Nav or footer structure | `content/data/navigation.json`. A page can also add itself: frontmatter `menu: header`, `footer` or `both` (optional `menuLabel`, `menuOrder`) puts it after the listed links, once (`selfListed` in `lib/content.js`); footer ones go into the column marked `"auto": true`, else the first, else a new "Pages" column. Drafts never do |
+| Header and footer look | `content/data/navigation.json` → `appearance`: `header` `theme` (`light`/`dark`/`brand`), `layout` (`right`/`center`/`left`: where the menu sits), `sticky`, `style` (`bar`/`floating`: a rounded bar with space around it), `transparent` (see-through over the top of the page until scrolled), `shrink` (lower once scrolled); `footer` `theme` (`dark`/`light`/`brand`), `layout` (`columns`/`centered`/`minimal`), `showTagline`, `showContact`, `showSocial` (icons for `site.config.json` → `social`, as `nav.social`), `cta` (`{ title, text, label, url }`: a call-to-action strip above the footer, shown with a label and a link that resolves), `copyright` (after `© <year>`; empty = site name, "All rights reserved."). `navAppearance` in `lib/content.js` checks and defaults them into `nav.appearance` (on `nav`, not `data`, because `scaffold-schedule.js` renders the partials with only `site` and `nav`), adding `tone` and the `logo` for that background. `header.html`/`footer.html` put `theme`/`tone`/`layout`/`style` in data attributes and style them with `group-data-[…]/header` variants, since templates can't compare values; `assets/js/site.js` keeps the header's `data-scrolled` up to date for `transparent` and `shrink`. The Twinstack web app detects support by `nav.appearance` in both partials and `navAppearance` in `content.js`, and the newer options by `nav.appearance.header.style` in `header.html` and `nav.appearance.footer.layout` in `footer.html`; its installer copies both partials, `content.js` and `site.js` |
 | Headline stats | `content/data/company.json` |
 | FAQ entries | `content/data/faq.json` |
 | The homepage | `content/pages/home.md` (`url: /`). It's an ordinary page with the `page` layout, so its body is what it shows. Older copies have a `home` layout fed by `content/data/home.json` |
@@ -348,7 +348,10 @@ npm run page:edit -- about-us --from-html=old-site/about.html --keep-styles --cs
 ```
 
 The body is then copied by code, not by Claude. Header, footer and navigation
-are removed as above, and the rest keeps its elements, classes, ids, inline
+are removed as above (a mobile menu or off-canvas drawer counts as
+navigation, and skip links go everywhere), but what sits outside `<main>` is
+kept: there it's the page's own, like a chat button, a pop-up form or a toast,
+and the copy must have it. The rest keeps its elements, classes, ids, inline
 styles, SVG, `data-*`, event handlers, `javascript:` links, `<template>`,
 `<canvas>` and `<noscript>` (only `srcset`/`sizes` and integrity attributes go).
 Each class is prefixed `imp-`, so the site's components and
@@ -360,8 +363,21 @@ with no blank lines (the markdown renderer ends a raw block at one) and with
 `scripts/lib/css-scope.js` builds the page's stylesheet. Its inputs are the
 `<style>` blocks and the uploaded files, in the page's own cascade order: an
 upload whose file name matches a `<link href>` takes that link's place, and
-the rest come first. A `media` attribute wraps its sheet in `@media`, so a
-print stylesheet stays print-only. Linked stylesheets from web-font services
+the rest come first. A link nothing was uploaded for (and that no global
+stylesheet stands in for) is downloaded from its address, as Claude Code would
+fetch it: a CDN's icon font such as Font Awesome, a framework, or a relative
+path on the old site when the page names its address (`<base href>`, its
+canonical link or `og:url`, see `pageBaseUrl`). The download's `url()`s are made
+absolute against where it came from, and the sheets it `@import`s are
+downloaded into it (`downloadStylesheet` in `edit-page.js`). Only a download
+that fails is a warning. The same address resolves the page's relative images,
+scripts and inline `url()`s, which then load from the old site, with a warning
+to upload them if this site will replace it. A `media` attribute wraps its
+sheet in `@media`, so a print stylesheet stays print-only. The non-blocking
+patterns count as what they become once loaded (`linkedStylesheet` in
+`html-source.js`): `media="print" onload="this.media='all'"` is a sheet for every
+medium, and `rel="preload" as="style" onload="this.rel='stylesheet'"` is a
+stylesheet. A `<noscript>` copy of a link is left out. Linked stylesheets from web-font services
 (Google Fonts, Bunny, Typekit, Fontshare) go into the page's `fonts`
 frontmatter list, which `base.html` loads in `<head>` the way the original did,
 so text never shows in fallback fonts first. Every selector is put under
@@ -374,12 +390,15 @@ Other pages' CSS is handled too:
 - `html`/`body`/`:root` rules become the wrapper's, keeping pseudo-elements
   (`body::before` is the wrapper's `::before`).
 - The old `<html>` and `<body>` classes and ids go onto the wrapper, so
-  `body.home .x`, `.home .x` and `#page .x` still apply.
+  `body.home .x`, `.home .x` and `#page .x` still apply. A class that elements
+  inside the page carry too (`<html class="w-full">` and `<svg class="w-full">`)
+  keeps matching them as well as the wrapper.
 - `*` and `*::before` also match the wrapper, through `:where()` so they keep
   zero specificity, as they matched `<body>`.
 - `[class^="col-"]`-style attribute selectors get the prefix.
-- `@keyframes` names get the prefix (and `animation` values follow), so they
-  can't clash with the site's `pulse` or `spin`.
+- `@keyframes` names get the prefix (and `animation` values follow, as do
+  custom properties like Tailwind 4's `--animate-spin`), so they can't clash
+  with the site's `pulse` or `spin`.
 - `@layer` names get the prefix, with an order statement at the top.
 - CSS nesting has its class names prefixed.
 - When the page set its root font size (`html { font-size: 62.5% }`), its rem
@@ -587,6 +606,31 @@ overrides and writes `url: "/"`. The work log records `chrome:design`. The Twins
 detects support by the literal `--chrome` in `edit-page.js`, and hides the header and
 footer style switches when the partials carry `data-designed="claude"`.
 
+**Keep a converted page's own header and footer**
+
+`--with-header` and/or `--with-footer` (with `--from-html`, keeping styles) make the
+page's own header and footer the site's, copied exactly (`buildChrome` in `edit-page.js`).
+`cleanHtml` hands back what it removed as `chrome.header` (header, navigation and mobile
+menus before the content starts) and `chrome.footer` (footers, cookie banners, anything
+after it); breadcrumbs and sidebars are never kept. Each part is written into its partial
+inside `<div class="imported-chrome" data-designed="copied" data-chrome-id="<id>"
+data-chrome-from="<file>">`, with classes prefixed `imp-` like the page's, and its CSS is
+scoped to `.imported-chrome` into `assets/css/imported/chrome-<id>.css`, which the partial
+links (`scopeCss({ chrome: true })`: no body margin, and from `html`/`body` rules only what
+they pass down: font, colour…). `<id>` hashes the HTML, so another conversion never takes
+these files. The scripts that drive them (inline ones naming one of their ids or own
+classes, and the files and URLs the page loads, bar analytics) are copied to
+`assets/js/imported/chrome-<id>/` and listed in a `<template>`; a loader writes them in after
+`assets/js/imported-page.js` (now multi-root and safe to load twice), with stand-ins for the
+converted page's own parts. On the converted page itself (its wrapper has
+`data-chrome-source="<id>"`) the page's scripts already run them, so the loader stops. On
+other pages, links to the converted page's sections (`#pricing`) are pointed at it, and a
+fixed or floating header gets a spacer of its height (`[data-chrome-spacer]`, hidden on
+imported pages, which were made for it). The render check compares the header and footer
+too. The proposal carries both partials, the CSS and the scripts in `"files"`; the web app
+allows the partials only with `data-designed="copied"`, detects support by the literal
+`--with-header`, and puts the standard ones back with its header and footer installer.
+
 **Edit other markdown files with Claude**
 
 ```bash
@@ -732,7 +776,8 @@ own.
 ## Frontmatter reference
 
 Shared by every type: `title`, `description`, `slug`, `url`, `layout`, `order`,
-`draft`, `noindex`, `navHidden`, `image`, `faqTopics`, `showFaq` (FAQ entries go
+`draft`, `noindex`, `navHidden`, `menu` (`header`/`footer`/`both`: the page adds itself
+to those menus), `menuLabel`, `menuOrder`, `image`, `faqTopics`, `showFaq` (FAQ entries go
 into the page's structured data, and a body can loop `faqItems`), and the SEO
 fields `metaTitle`, `metaDescription`, `focusKeyword`, `ogImage`, `ogImageAlt`,
 `canonical`. Any other field is the page's own: its body can read it as

@@ -43,7 +43,7 @@ const base = basePath();
 
 function withBase(html) {
   if (!base) return html;
-  return html.replace(/((?:href|src)=")\/(?!\/)/g, `$1${base}/`);
+  return html.replace(/((?:href|src)=["'])\/(?!\/)/g, `$1${base}/`);
 }
 
 /* ------------------------------------------------------------------- helpers */

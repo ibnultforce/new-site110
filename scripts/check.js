@@ -54,13 +54,14 @@ for (const entry of all) {
 }
 
 /* Internal links and images */
-const linkPattern = /(?:href|src)="(\/[^"#?]*)(?:[#?][^"]*)?"/g;
+// Either quote: an imported page or a copied header may use single quotes.
+const linkPattern = /(?:href|src)=(["'])(\/[^"'#?]*)(?:[#?][^"']*)?\1/g;
 for (const entry of all) {
   const file = path.join(paths.dist, entry.url === '/' ? 'index.html' : entry.url.endsWith('.html') ? entry.url.slice(1) : `${entry.url.slice(1)}index.html`);
   if (!fs.existsSync(file)) continue;
   const html = fs.readFileSync(file, 'utf8');
 
-  for (const [, href] of html.matchAll(linkPattern)) {
+  for (const [, , href] of html.matchAll(linkPattern)) {
     const bare = stripBase(href);
     const target = bare.endsWith('/') || path.extname(bare) ? bare : `${bare}/`;
     if (!served.has(target) && !served.has(bare)) {

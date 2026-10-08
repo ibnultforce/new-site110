@@ -23,6 +23,9 @@ import { TemplateEngine } from './template.js';
 export const HEADER_FILE = 'templates/partials/header.html';
 export const FOOTER_FILE = 'templates/partials/footer.html';
 export const DESIGNED_MARK = 'data-designed="claude"';
+// On a header or footer copied from a converted page as it was (edit-page.js --with-header /
+// --with-footer): fixed HTML, so neither the menu data nor the style switches change it.
+export const COPIED_MARK = 'data-designed="copied"';
 
 /** The data the partials render, and the parts they must keep, for the system prompt. */
 export const CHROME_RULES = `WHAT THE HEADER AND FOOTER SHOW

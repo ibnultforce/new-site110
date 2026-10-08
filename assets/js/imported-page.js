@@ -16,21 +16,36 @@
 
    The <script> tag carries data-html-class, data-body-class and data-removed
    ("#id .class" tokens) from the page's frontmatter. base.html calls body()
-   right after <body> opens and ready() before the page's own body scripts. */
+   right after <body> opens and ready() before the page's own body scripts.
+
+   A header and footer copied from a converted page (.imported-chrome, see
+   scripts/edit-page.js --with-header/--with-footer) are handled the same way,
+   on every page: their partial loads this file too, with data-removed naming
+   the converted page's own parts, which other pages don't have. Loaded twice
+   on one page, the second copy only adds its stand-ins. */
 (function () {
   'use strict';
 
   var PREFIX = 'imp-';
+  var ROOTS = '.imported-page, .imported-chrome';
   var config = (document.currentScript && document.currentScript.dataset) || {};
   var words = function (value) { return String(value || '').split(/\s+/).filter(Boolean); };
   var each = function (list, fn) { Array.prototype.forEach.call(list, fn); };
 
+  if (window.TwinstackImported) {
+    window.TwinstackImported.addRemoved(config.removed);
+    return;
+  }
+
   var removedIds = {};
   var removedClasses = {};
-  words(config.removed).forEach(function (token) {
-    if (token.charAt(0) === '#') removedIds[token.slice(1)] = true;
-    else if (token.charAt(0) === '.') removedClasses[token.slice(1)] = true;
-  });
+  function addRemoved(tokens) {
+    words(tokens).forEach(function (token) {
+      if (token.charAt(0) === '#') removedIds[token.slice(1)] = true;
+      else if (token.charAt(0) === '.') removedClasses[token.slice(1)] = true;
+    });
+  }
+  addRemoved(config.removed);
   words(config.htmlClass).forEach(function (name) { document.documentElement.classList.add(name); });
 
   /* ---------------------------------------------- stand-ins for removed parts */
@@ -104,9 +119,17 @@
     words(config.bodyClass).forEach(function (name) { document.body.classList.add(name); });
   }
 
+  // Each wrapper on the page (the converted page's, a copied header's or footer's), once.
   function ready() {
-    var page = document.querySelector('.imported-page');
-    if (!page || !('MutationObserver' in window)) return;
+    if (!('MutationObserver' in window)) return;
+    each(document.querySelectorAll(ROOTS), function (page) {
+      if (page.__twinstackReady) return;
+      page.__twinstackReady = true;
+      watch(page);
+    });
+  }
+
+  function watch(page) {
     each(page.children, pairTree);
 
     // Classes head scripts already put on <html> or <body> ("js") belong to the wrapper too, and
@@ -146,5 +169,5 @@
     });
   }
 
-  window.TwinstackImported = { body: body, ready: ready };
+  window.TwinstackImported = { body: body, ready: ready, addRemoved: addRemoved };
 })();

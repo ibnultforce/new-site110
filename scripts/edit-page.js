@@ -87,6 +87,7 @@
  * Requires ANTHROPIC_API_KEY.
  */
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, readJson, loadSite } from './lib/content.js';
@@ -96,7 +97,7 @@ import { renderCheck, scriptCheck } from './lib/render-check.js';
 import { PAGE_MAX_TOKENS, bannedPhraseWarnings, requestClaude, resolveImages, stripFence } from './lib/claude-writer.js';
 import { knowledgePrompt, recordWork, summarizeChange } from './lib/knowledge.js';
 import { BLANK_LAYOUT_RULES, DESIGN_RULES, layoutShowsTitle, styleReference } from './lib/design-rules.js';
-import { CHROME_RULES, FOOTER_FILE, HEADER_FILE, chromeChecks, chromeData, readChromeReply } from './lib/chrome.js';
+import { CHROME_RULES, COPIED_MARK, FOOTER_FILE, HEADER_FILE, chromeChecks, chromeData, readChromeReply } from './lib/chrome.js';
 import {
   MAX_CLEAN_CHARS,
   asRawBlock,
@@ -104,6 +105,8 @@ import {
   cleanHtml,
   presentationalHints,
   htmlImages,
+  linkedStylesheet,
+  pageBaseUrl,
   readCssSource,
   readHtmlSource,
   readJsSource,
@@ -153,6 +156,10 @@ const cssArgs = argv.filter((a) => a.startsWith('--css=')).map((a) => a.slice('-
 // Scripts the page loads from its own files (<script src="js/main.js">), like --css for stylesheets.
 const jsArgs = argv.filter((a) => a.startsWith('--js=')).map((a) => a.slice('--js='.length));
 const noRenderCheck = Boolean(flag('no-render-check'));
+// A conversion that keeps the page's look can also make its header and footer the site's own,
+// copied as they are, on every page (buildChrome). Without these the site keeps its own.
+const withHeaderFlag = Boolean(flag('with-header'));
+const withFooterFlag = Boolean(flag('with-footer'));
 
 const site = readJson(path.join(ROOT, 'site.config.json'));
 // The Twinstack web app passes the account's chosen model; run by hand, the site's own setting.
@@ -746,11 +753,12 @@ function importedScriptDir(relFile) {
  * The page's scripts, kept in their order and place (<head> or the end of the
  * body): inline ones saved as files in assets/js/imported/<page>/, ones from a
  * URL loaded from it, and ones from the old site's own files taken from the
- * uploads (`jsFiles`, matched by file name) or the repo. Returns { entries
+ * uploads (`jsFiles`, matched by file name) or the repo, or else from the
+ * page's published address (`base`). Returns { entries
  * (the "scripts" frontmatter), files, sources (what runs, for the script
  * check), warnings }.
  */
-function keptScripts(html, jsFiles, relFile) {
+function keptScripts(html, jsFiles, relFile, base = null) {
   const dir = importedScriptDir(relFile);
   const uploads = jsFiles.map((f) => readJsSource(f));
   const used = new Set();
@@ -761,7 +769,8 @@ function keptScripts(html, jsFiles, relFile) {
   let inline = 0;
   const keep = (script, src, code) => {
     entries.push({ src, head: script.head, module: script.module, nomodule: script.nomodule, defer: script.defer, async: script.async });
-    sources.push({ ...script, src: code === null ? src : null, code });
+    // `inline`: written in the page, rather than a file it loads.
+    sources.push({ ...script, src: code === null ? src : null, code, inline: script.code !== null });
   };
   for (const script of scriptsIn(html)) {
     if (script.code !== null) {
@@ -785,8 +794,14 @@ function keptScripts(html, jsFiles, relFile) {
       keep(script, `/${file}`, upload.code);
       continue;
     }
-    const inRepo = siteImage(src);
-    if (inRepo) keep(script, inRepo, fs.readFileSync(path.join(ROOT, inRepo.slice(1)), 'utf8'));
+    const local = siteImage(src);
+    const published = local ? null : absoluteUrl(src, base);
+    if (local) keep(script, local, fs.readFileSync(path.join(ROOT, local.slice(1)), 'utf8'));
+    // Still on the old site, where the page was published: loaded from there.
+    else if (published) {
+      keep(script, published, null);
+      warnings.push(`the page loads ${script.src} from ${new URL(published).host}, where it was published. Upload it with the HTML if this site will replace that one`);
+    }
     else warnings.push(`the page loads ${script.src}, which wasn't uploaded, so it's left out. Upload it with the HTML to keep it`);
   }
   for (const u of uploads.filter((x) => !used.has(x))) warnings.push(`${path.posix.basename(u.file)} was uploaded, but the page doesn't load it`);
@@ -805,13 +820,125 @@ const MAX_IMPORTED_CSS = 600 * 1024;
 // Web-font services whose stylesheets only declare fonts, so the page loads them as they are.
 const FONT_STYLESHEET = /^(https?:)?\/\/(fonts\.googleapis\.com|fonts\.bunny\.net|use\.typekit\.net|api\.fontshare\.com)\//i;
 
-/** Points an <img> at what the site can show: URLs as they are, repo files as "/…", anything else null. */
-function siteImage(src) {
+/**
+ * Points an <img> at what the site can show: URLs as they are, repo files as
+ * "/…", other paths at the page's published address (`base`, see
+ * pageBaseUrl) when it has one, anything else null.
+ */
+function siteImage(src, base = null) {
   const value = src.startsWith('//') ? `https:${src}` : src;
   if (/^https?:\/\//i.test(value)) return value;
   const relative = path.posix.normalize(value.split(/[?#]/)[0].replace(/^\/+/, '').replace(/^\.\//, ''));
   if (!relative.startsWith('../') && relative.split('/')[0] !== '.git' && fs.existsSync(path.join(ROOT, relative))) return `/${relative}`;
-  return null;
+  return absoluteUrl(value, base);
+}
+
+/** `ref` resolved against `base` as an http(s) URL, or null (no base, or not a path: data:, mailto:, #…). */
+function absoluteUrl(ref, base) {
+  if (!base || !ref || /^(data|blob|mailto|tel|javascript|about):|^#/i.test(ref)) return null;
+  try {
+    const url = new URL(ref, base);
+    return /^https?:$/.test(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+const MAX_REMOTE_CSS = 2 * 1024 * 1024;
+const CSS_URL = /url\(\s*(["']?)([^"')]+?)\1\s*\)/gi;
+const CSS_IMPORT = /@import\s+(?:url\(\s*(["']?)([^"')]+?)\1\s*\)|(["'])([^"']+)\3)\s*([^;]*);/gi;
+
+/** Every relative url() in `css` made absolute against `base`; ones the repo has (`keep`) stay. */
+function absoluteCssUrls(css, base, keep = () => false, quote = '"') {
+  return css.replace(CSS_URL, (whole, q, raw) => {
+    const ref = raw.trim();
+    if (/^\/\//.test(ref)) return `url(${quote}https:${ref}${quote})`;
+    if (/^(https?:|data:|#)/i.test(ref) || keep(ref)) return whole;
+    const url = absoluteUrl(ref, base);
+    return url ? `url(${quote}${url.replace(/["']/g, encodeURIComponent)}${quote})` : whole;
+  });
+}
+
+/** Markup with the relative url()s in its style attributes resolved against `base` (see absoluteCssUrls). */
+function absoluteInlineStyles(markup, base) {
+  if (!base) return markup;
+  return markup.replace(/(\sstyle\s*=\s*)(["'])([\s\S]*?)\2/gi, (_, lead, q, value) => `${lead}${q}${absoluteCssUrls(value, base, inRepo, q === '"' ? "'" : '"')}${q}`);
+}
+
+/** Whether a root-relative path is a file in this repo. */
+const inRepo = (ref) => ref.startsWith('/') && !ref.startsWith('//') && fs.existsSync(path.join(ROOT, ref.split(/[?#]/)[0].slice(1)));
+
+/**
+ * Downloads a stylesheet the page links from another server (a CDN's icon
+ * font, a framework, the old site's own CSS), as a browser would: its url()s
+ * made absolute against where it came from, and the sheets it @imports
+ * downloaded into it in their place (web-font services' stay as @imports).
+ * Throws a readable error when it can't be had.
+ */
+async function downloadStylesheet(url, warnings, depth = 0) {
+  let res;
+  try {
+    res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(20000), headers: { accept: 'text/css,*/*;q=0.1', 'user-agent': 'Mozilla/5.0 (compatible; Twinstack page import)' } });
+  } catch (error) {
+    throw new Error(error.name === 'TimeoutError' ? 'it took too long to download' : `it couldn't be downloaded (${error.cause?.code || error.message})`);
+  }
+  if (!res.ok) throw new Error(`the server answered ${res.status}`);
+  if (/text\/html/i.test(res.headers.get('content-type') || '')) throw new Error('the address gives a web page, not CSS');
+  const text = await res.text();
+  if (text.length > MAX_REMOTE_CSS) throw new Error(`it's over ${MAX_REMOTE_CSS / 1024 / 1024} MB`);
+  const from = res.url || url;
+  const css = absoluteCssUrls(text, from);
+  let out = '';
+  let last = 0;
+  for (const m of css.matchAll(CSS_IMPORT)) {
+    const target = absoluteUrl((m[2] ?? m[4]).trim(), from);
+    const condition = m[5].trim();
+    out += css.slice(last, m.index);
+    last = m.index + m[0].length;
+    if (!target || FONT_STYLESHEET.test(target)) {
+      out += target ? `@import url("${target}")${condition ? ` ${condition}` : ''};` : '';
+      continue;
+    }
+    if (depth >= 3) {
+      warnings.push(`left out ${target}, which ${from} imports through too many other stylesheets`);
+      continue;
+    }
+    try {
+      const inner = await downloadStylesheet(target, warnings, depth + 1);
+      const layer = /^layer(?:\(([^)]*)\))?/i.exec(condition);
+      const media = condition.replace(/^layer(?:\([^)]*\))?\s*/i, '').replace(/^supports\([^)]*\)\s*/i, '').trim();
+      let block = media ? `@media ${media} {\n${inner}\n}` : inner;
+      if (layer) block = `@layer${layer[1] ? ` ${layer[1].trim()}` : ''} {\n${block}\n}`;
+      out += `\n${block}\n`;
+    } catch (error) {
+      warnings.push(`left out ${target}, which ${from} imports: ${error.message}`);
+    }
+  }
+  return out + css.slice(last);
+}
+
+/**
+ * The page's linked stylesheets that live on another server (or on the old
+ * site, when the page names its address), downloaded: a Map from each link's
+ * href as written to { name, css }, or { error }. Links an upload or global
+ * stylesheet stands in for, and web-font services' sheets, aren't fetched.
+ */
+async function remoteSheets(html, uploads, globals, base) {
+  const covered = new Set([...uploads.map((u) => sheetName(u.file)), ...globals.map((g) => sheetName(g.path))]);
+  const wanted = stylesheetsIn(html).filter((s) => s.href && !FONT_STYLESHEET.test(s.href) && !covered.has(sheetName(s.href)));
+  const sheets = new Map();
+  await Promise.all(wanted.map(async ({ href }) => {
+    const url = absoluteUrl(href.startsWith('//') ? `https:${href}` : href, /^(https?:)?\/\//i.test(href) ? 'https://localhost/' : base);
+    if (!url) return;
+    const warnings = [];
+    try {
+      const css = await downloadStylesheet(url, warnings);
+      sheets.set(href, { name: url, css, warnings });
+    } catch (error) {
+      sheets.set(href, { error: error.message, url });
+    }
+  }));
+  return sheets;
 }
 
 const sheetName = (ref) => path.posix.basename(String(ref).split(/[?#]/)[0]).toLowerCase();
@@ -847,13 +974,14 @@ function globalSheets(uploads) {
 
 /**
  * The stylesheets that stand in for a page's <link>s: the upload with the
- * link's file name, or else the global stylesheet its href points at.
+ * link's file name, or else the global stylesheet its href points at, or else
+ * the sheet downloaded from the link's address (`remote`, see remoteSheets).
  * `forLink(href)` takes each one once ({ name, css } or null); `rest()` is the
  * uploads no link took, which apply before the page's own CSS. A global
  * stylesheet the page doesn't link is left out: the page wasn't designed with
  * it (it may come from another design), and the copy must look like it.
  */
-function standIns(uploads, globals) {
+function standIns(uploads, globals, remote = new Map()) {
   const used = new Set();
   const take = (sheet, name) => {
     used.add(sheet);
@@ -867,7 +995,9 @@ function standIns(uploads, globals) {
       const bare = href.split(/[?#]/)[0].replace(/^(?:\.{1,2}\/|\/)+/, '');
       const named = globals.filter((g) => !used.has(g) && sheetName(g.path) === base);
       const global = named.find((g) => bare === g.path || bare.endsWith(`/${g.path}`) || g.path.endsWith(`/${bare}`)) ?? named[0];
-      return global ? take(global, global.file) : null;
+      if (global) return take(global, global.file);
+      const downloaded = remote.get(href);
+      return downloaded?.css !== undefined ? { name: downloaded.name, css: downloaded.css } : null;
     },
     rest: () => uploads.filter((u) => !used.has(u)).map((u) => ({ name: path.posix.basename(u.file), css: u.css })),
     // The global stylesheets the page's links took.
@@ -882,23 +1012,31 @@ function standIns(uploads, globals) {
  * <link href> takes that link's place in the cascade, and the rest come first.
  * The site tree's global stylesheets stand in for the links that point at them.
  */
-function buildStyledPage(source, cssFiles, relFile, jsFiles = []) {
+async function buildStyledPage(source, cssFiles, relFile, jsFiles = [], chromeWanted = { header: false, footer: false }) {
   const { file, html } = readHtmlSource(source);
   const page = cleanHtml(html, { keepStyles: true, prefix: IMPORT_PREFIX });
   if (!page.text && !/<(img|svg)\b/i.test(page.html)) throw new Error(`${file} has no content left once its header and footer are removed`);
+  // Where the page was published: its relative images, scripts and stylesheets are still there.
+  const base = pageBaseUrl(html);
 
   const warnings = [];
-  const scripts = keptScripts(html, jsFiles, relFile);
+  const scripts = keptScripts(html, jsFiles, relFile, base);
   warnings.push(...scripts.warnings);
   const unavailable = [];
+  const fromOldSite = [];
   let body = rewriteImages(page.html, (src) => {
-    const resolved = siteImage(src);
+    const resolved = siteImage(src, base);
     if (resolved === null) unavailable.push(src);
+    else if (!/^(https?:)?\/\//i.test(src) && !resolved.startsWith('/')) fromOldSite.push(src);
     return resolved;
   });
+  if (fromOldSite.length) {
+    warnings.push(`${fromOldSite.length} image${fromOldSite.length === 1 ? '' : 's'} (${[...new Set(fromOldSite)].slice(0, 3).join(', ')}${fromOldSite.length > 3 ? '…' : ''}) load from ${new URL(base).host}, where the page was published. Upload them if this site will replace that one`);
+  }
   for (const src of [...new Set(unavailable)]) {
     warnings.push(`left out ${src}: it isn't in this site. Upload the image and add it to the page if it's needed`);
   }
+  body = absoluteInlineStyles(body, base);
   for (const m of body.matchAll(/style\s*=\s*"[^"]*url\(\s*['"]?(?!https?:|data:|\/assets\/)([^'")]+)/gi)) {
     warnings.push(`an inline style refers to ${m[1]}, which isn't in this site, so that background won't load`);
   }
@@ -908,15 +1046,19 @@ function buildStyledPage(source, cssFiles, relFile, jsFiles = []) {
   const uploads = cssFiles.map((f) => readCssSource(f));
   const { globals, globalUpdates, notes } = globalSheets(uploads);
   warnings.push(...notes);
-  const links = standIns(uploads, globals);
+  // Linked stylesheets nothing was uploaded for are downloaded from where the page loads them.
+  const remote = await remoteSheets(html, uploads, globals, base);
+  for (const sheet of remote.values()) warnings.push(...(sheet.warnings || []));
+  const links = standIns(uploads, globals, remote);
   const sheets = [];
   const fonts = [];
   const inMedia = (css, media) => (media ? `@media ${media} {\n${css}\n}` : css);
   for (const entry of stylesheetsIn(html)) {
     if (entry.inline !== undefined) {
-      sheets.push({ name: 'inline <style>', css: inMedia(entry.inline, entry.media) });
+      sheets.push({ name: 'inline <style>', css: inMedia(base ? absoluteCssUrls(entry.inline, base, inRepo) : entry.inline, entry.media) });
       continue;
     }
+    const failed = remote.get(entry.href)?.error;
     const match = links.forLink(entry.href);
     if (match) {
       sheets.push({ name: match.name, css: inMedia(match.css, entry.media) });
@@ -924,10 +1066,10 @@ function buildStyledPage(source, cssFiles, relFile, jsFiles = []) {
       // Only @font-face rules: loaded from the page's <head> like the original did, so text doesn't
       // show in fallback fonts first.
       fonts.push(entry.href.replace(/^\/\//, 'https://'));
-    } else if (!/^https?:|^\/\//i.test(entry.href)) {
-      warnings.push(`the page links ${entry.href}, which wasn't uploaded, so its styles are missing. Upload it with the HTML`);
+    } else if (failed) {
+      warnings.push(`the page links ${entry.href}, but ${failed}, so its styles are missing. Upload it with the HTML to include it`);
     } else {
-      warnings.push(`the page links ${entry.href}; that stylesheet isn't copied. Download it and upload it with the HTML to include it`);
+      warnings.push(`the page links ${entry.href}, which wasn't uploaded, so its styles are missing. Upload it with the HTML`);
     }
   }
   const unmatched = links.rest().map(({ name, css }) => ({ name, css }));
@@ -954,12 +1096,23 @@ function buildStyledPage(source, cssFiles, relFile, jsFiles = []) {
   if (scoped.css.length > MAX_IMPORTED_CSS) throw new Error(`the page's CSS is over ${MAX_IMPORTED_CSS / 1024} KB even after unused rules are removed`);
   if (page.removed.length) warnings.push(`removed from the HTML: ${page.removed.join(', ')}`);
 
+  // The page's own header and footer, copied as the site's (--with-header / --with-footer).
+  const chrome = chromeWanted.header || chromeWanted.footer
+    ? buildChrome({ html, file, page, sheets: allSheets, scripts, base, fonts: [...new Set(fonts)], wanted: chromeWanted, pageUrl: pageUrlOf(relFile) })
+    : null;
+  if (chrome) warnings.push(...chrome.warnings);
+
   // The old <html>/<body> classes now belong to the wrapper, so their rules still apply.
   const wrapperClass = [IMPORT_SCOPE, ...[...page.rootClasses].map((c) => IMPORT_PREFIX + c)].join(' ');
+  // The page the copied header and footer came from runs their scripts itself (see buildChrome).
+  const chromeSource = chrome?.id ? ` data-chrome-source="${chrome.id}"` : '';
   return {
     file,
     html,
+    base,
     uploads,
+    // The linked stylesheets downloaded from their addresses.
+    remote,
     // The site tree's global stylesheets the page links, which are applied to it.
     globals: appliedGlobals,
     // Global stylesheets an upload replaced, written with the page.
@@ -967,7 +1120,9 @@ function buildStyledPage(source, cssFiles, relFile, jsFiles = []) {
     title: page.title,
     description: page.description,
     removed: page.removed,
-    body: `<div class="${wrapperClass}"${revealAttributes(reveal, html)}>\n${asRawBlock(body)}\n</div>\n`,
+    body: `<div class="${wrapperClass}"${chromeSource}${revealAttributes(reveal, html)}>\n${asRawBlock(body)}\n</div>\n`,
+    // The copied header and footer: { id, files, header, footer, css } or null.
+    chrome,
     reveal,
     fonts: [...new Set(fonts)],
     stylesheet: { file: importedStylesheet(relFile), content: `/* Imported with ${path.posix.basename(file)} by scripts/edit-page.js --keep-styles. Scoped to .${IMPORT_SCOPE}; regenerate it by converting again. */\n${scoped.css}` },
@@ -984,6 +1139,142 @@ function buildStyledPage(source, cssFiles, relFile, jsFiles = []) {
     },
     warnings,
   };
+}
+
+const CHROME_SCOPE = 'imported-chrome';
+
+/** The address the site gives a page file ("/" for the homepage), "/" if it can't tell. */
+function pageUrlOf(relFile) {
+  try {
+    const entry = loadSite({ includeDrafts: true, includeFuture: true }).all.find((e) => e.sourceFile.split(path.sep).join('/') === relFile);
+    return entry?.url ?? '/';
+  } catch {
+    return '/';
+  }
+}
+// Scripts a copied header never needs on every page: analytics and ad tags.
+const ANALYTICS_SCRIPT = /googletagmanager|google-analytics|gtag\/js|connect\.facebook|hotjar|clarity\.ms|segment\.(com|io)|plausible|matomo|doubleclick/i;
+
+/**
+ * The page's own header and footer, copied as the site's: the HTML cleanHtml
+ * took out (`page.chrome`), with its classes prefixed like the page's, in
+ * templates/partials/header.html and footer.html, which base.html puts on every
+ * page. Each sits in a <div class="imported-chrome" data-designed="copied">
+ * wrapper (the old <body>'s classes go on it too) and its CSS, scoped to that
+ * wrapper, goes into assets/css/imported/chrome-<id>.css, which the partial
+ * links. Only what the old <body> passed down (font, colour) reaches it from
+ * body rules: a min-height or padding there was the whole page's.
+ *
+ * The scripts that drive them (a menu button, a bar that shrinks on scroll)
+ * run on every page too: the page's inline scripts that name one of their ids
+ * or own classes, and the files and URLs it loads (a library may run the menu),
+ * bar analytics. They're kept in assets/js/imported/chrome-<id>/ and listed in
+ * a <template>, which a small loader writes into the page, after
+ * assets/js/imported-page.js (class mirroring, and stand-ins for the converted
+ * page's own parts, which other pages don't have). On the converted page itself
+ * the page's own scripts already run them, so the loader stops when it finds
+ * that page's wrapper (data-chrome-source="<id>"). `<id>` comes from the HTML,
+ * so another conversion's chrome never takes its files.
+ * Returns { id, files, warnings, header, footer, css, rules } (id null when
+ * nothing was copied).
+ */
+function buildChrome({ html, file, page, sheets, scripts, base, fonts, wanted, pageUrl }) {
+  const warnings = [];
+  const parts = {};
+  for (const place of ['header', 'footer']) {
+    if (!wanted[place]) continue;
+    if (!page.chrome[place].html.trim()) warnings.push(`the page has no ${place} to copy, so the site keeps its own`);
+    else parts[place] = page.chrome[place];
+  }
+  if (!parts.header && !parts.footer) return { id: null, files: [], warnings };
+
+  const id = createHash('sha1').update(html).digest('hex').slice(0, 10);
+  const classes = new Set();
+  const ids = new Set();
+  for (const part of Object.values(parts)) {
+    for (const c of part.classes) classes.add(c);
+    for (const i of part.ids) ids.add(i);
+  }
+
+  const unavailable = [];
+  const markup = {};
+  for (const [place, part] of Object.entries(parts)) {
+    const images = rewriteImages(part.html, (src) => {
+      const resolved = siteImage(src, base);
+      if (resolved === null) unavailable.push(src);
+      return resolved;
+    });
+    markup[place] = absoluteInlineStyles(images, base);
+  }
+  for (const src of new Set(unavailable)) warnings.push(`left out ${src} from the copied ${Object.keys(parts).join(' and ')}: it isn't in this site. Upload the image to keep it`);
+
+  // The scripts that drive them.
+  const own = [...classes].filter((c) => !page.classes.has(c) && c.length >= 4);
+  const tokens = [...ids, ...own];
+  const scriptDir = `assets/js/imported/chrome-${id}`;
+  const files = [];
+  const tags = [];
+  scripts.sources.forEach((source, i) => {
+    const entry = scripts.entries[i];
+    const attrs = `${entry.module ? ' type="module"' : ''}${entry.nomodule ? ' nomodule' : ''}`;
+    if (source.code === null) {
+      if (!ANALYTICS_SCRIPT.test(entry.src)) tags.push(`<script src="${entry.src.replace(/"/g, '%22')}"${attrs}></script>`);
+      return;
+    }
+    if (source.inline && !tokens.some((t) => source.code.includes(t))) return;
+    const name = `${scriptDir}/script-${files.length + 1}.js`;
+    files.push({ file: name, content: source.code.replace(/^\s*\n/, '') });
+    tags.push(`<script src="/${name}"${attrs}></script>`);
+  });
+
+  const pageOnly = (all, kept) => [...all].filter((x) => !kept.has(x));
+  const scoped = scopeCss(sheets, {
+    scope: `.${CHROME_SCOPE}`, prefix: IMPORT_PREFIX, classes, ids, rootClasses: page.rootClasses, rootIds: page.rootIds,
+    hints: presentationalHints(Object.values(markup).join('\n'), `.${CHROME_SCOPE}`),
+    scripted: tags.length > 0, dropClasses: pageOnly(page.classes, classes), dropIds: pageOnly(page.ids, ids), chrome: true,
+  });
+  if (scoped.css.length > MAX_IMPORTED_CSS) throw new Error(`the header and footer's CSS is over ${MAX_IMPORTED_CSS / 1024} KB even after unused rules are removed`);
+  for (const place of Object.keys(markup)) markup[place] = scaleInlineRem(markup[place], scoped.remFactor);
+  const sprite = svgDefinitions(html, Object.values(markup).join('\n'), IMPORT_PREFIX);
+  if (sprite) markup[parts.header ? 'header' : 'footer'] += `\n${sprite}`;
+
+  const stylesheet = `assets/css/imported/chrome-${id}.css`;
+  const from = path.posix.basename(file);
+  const attr = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const wrapperClass = [CHROME_SCOPE, ...[...page.rootClasses].map((c) => IMPORT_PREFIX + c)].join(' ');
+  const links = [`/${stylesheet}`, ...fonts].map((href) => `<link rel="stylesheet" href="${attr(href)}">`).join('\n');
+  // What other pages don't have: the converted page's own parts, which its scripts may look up.
+  const standIns = [...pageOnly(page.ids, ids).map((x) => `#${x}`), ...pageOnly(page.classes, classes).map((c) => `.${c}`)].join(' ');
+  const loader = `(function(){var w=window.TwinstackImported;if(w)w.ready();if(document.querySelector('[data-chrome-source="${id}"]'))return;var t=document.querySelector('template[data-chrome-scripts="${id}"]');if(!t)return;Array.prototype.forEach.call(t.content.querySelectorAll('script'),function(s){document.write(s.outerHTML);});})();`;
+  const scriptBlock = tags.length
+    ? [`<template data-chrome-scripts="${id}">${tags.join('')}</template>`, `<script src="/assets/js/imported-page.js" data-removed="${attr(standIns)}"></script>`, `<script>${loader}</script>`].join('\n')
+    : '';
+
+  // After each part: on pages other than the converted one, its links to that page's sections
+  // ("#pricing") go to that page, and a header that floats over the page (position: fixed, as the
+  // converted page's own top spacing allowed for) gets a spacer of its height, so it doesn't cover
+  // the top of a page that wasn't made for it. Pages converted with their own look hide the spacer
+  // (the CSS below): they were made for that header.
+  const helper = `(function(){var me=document.currentScript,home=me.previousElementSibling,w=home.previousElementSibling,spacer=null;if(w&&w.hasAttribute('data-chrome-spacer')){spacer=w;w=w.previousElementSibling;}var source=function(){return document.querySelector('.imported-page[data-chrome-source="${id}"]');};function size(){if(!spacer||window.scrollY>40)return;var b=0;Array.prototype.forEach.call(w.querySelectorAll('*'),function(e){var p=getComputedStyle(e).position;if(p!=='fixed'&&!(p==='absolute'&&(e.offsetParent===document.body||e.offsetParent===null)))return;var r=e.getBoundingClientRect();if(!r.height||r.left>=innerWidth||r.right<=0||r.top>120)return;if(r.bottom>b)b=r.bottom;});spacer.style.height=Math.ceil(b)+'px';}size();addEventListener('load',size);addEventListener('resize',size);document.addEventListener('DOMContentLoaded',function(){if(source())return;Array.prototype.forEach.call(w.querySelectorAll('a[href^="#"]'),function(a){var id=a.getAttribute('href').slice(1);if(id&&!document.querySelector('[id="'+id.replace(/["\\\\]/g,'\\\\$&')+'"]'))a.setAttribute('href',home.getAttribute('href')+'#'+id);});});})();`;
+  const partial = (place, withLinks, withScripts) => [
+    `<!-- Copied from ${from.replace(/--/g, '-')} by scripts/edit-page.js --with-${place}: fixed HTML, so the menu settings don't change it. Convert again, or restore the standard ${place}, to change it. -->`,
+    `<div class="${wrapperClass}" ${COPIED_MARK} data-chrome-id="${id}" data-chrome-from="${attr(from)}">`,
+    ...(withLinks ? [links] : []),
+    asRawBlock(markup[place]),
+    '</div>',
+    ...(place === 'header' ? ['<div data-chrome-spacer aria-hidden="true"></div>'] : []),
+    `<a hidden data-chrome-page href="${attr(pageUrl)}"></a>`,
+    `<script>${helper}</script>`,
+    ...(withScripts && scriptBlock ? [scriptBlock] : []),
+    '',
+  ].join('\n');
+
+  if (parts.header) files.push({ file: HEADER_FILE, content: partial('header', true, !parts.footer) });
+  if (parts.footer) files.push({ file: FOOTER_FILE, content: partial('footer', !parts.header, true) });
+  const spacerCss = 'body:has(.imported-page) [data-chrome-spacer] { display: none; }';
+  files.push({ file: stylesheet, content: `/* The header and footer copied from ${from.replace(/\*\//g, '')} by scripts/edit-page.js. Scoped to .${CHROME_SCOPE}; regenerate it by converting again. */\n${spacerCss}\n${scoped.css}` });
+  warnings.push(...scoped.warnings.map((w) => `header and footer: ${w}`));
+  return { id, files, warnings, header: Boolean(parts.header), footer: Boolean(parts.footer), css: scoped.css, rules: scoped.rules, markup, wrapperClass };
 }
 
 /** Classes the CSS gives a :hover state, for the render check. */
@@ -1189,7 +1480,8 @@ function scriptTestDocument(styled, renderedBody) {
   return convertedTestDocument(styled, renderedBody)
     .replace('</head>', () => `${runtime}\n${head}\n</head>`)
     .replace('<body>', () => '<body><script>TwinstackImported.body()</script>')
-    .replace('</main></body>', () => `</main><script>TwinstackImported.ready()</script>\n${tail}\n</body>`);
+    // After the footer, as base.html has it.
+    .replace('</body></html>', () => `<script>TwinstackImported.ready()</script>\n${tail}\n</body></html>`);
 }
 
 /**
@@ -1200,22 +1492,27 @@ function scriptTestDocument(styled, renderedBody) {
  */
 function originalTestDocument(styled) {
   const source = styled.html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, '').replace(/<!--[\s\S]*?-->/g, '');
-  const links = standIns(styled.uploads, styled.globals);
+  const links = standIns(styled.uploads, styled.globals, styled.remote);
   const styleTag = (css, media) => `<style${media ? ` media="${media.replace(/"/g, '')}"` : ''}>${css}</style>`;
   let head = /<head\b[^>]*>[\s\S]*?<\/head\s*>/i.exec(source)?.[0] ?? '<head><meta charset="utf-8"></head>';
-  head = head.replace(/<link\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi, (tag) => {
-    if (!/\brel\s*=\s*["']?[^"'>]*stylesheet/i.test(tag)) return tag;
-    const href = /\bhref\s*=\s*["']?([^"'\s>]+)/i.exec(tag)?.[1] || '';
-    if (FONT_STYLESHEET.test(href)) return tag;
-    const match = links.forLink(href);
-    return match ? styleTag(match.css, /\bmedia\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]) : '';
+  // Without its scripts the page's <noscript> fallbacks would apply; the copy runs with them.
+  head = head.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\s*>/gi, '');
+  head = head.replace(/<link\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi, (tag, attrs) => {
+    if (!/\b(stylesheet|preload)\b/i.test(tag)) return tag;
+    const link = linkedStylesheet(attrs);
+    if (!link) return /\bstylesheet\b/i.test(tag) ? '' : tag;
+    if (FONT_STYLESHEET.test(link.href)) return `<link rel="stylesheet" href="${link.href.replace(/"/g, '%22')}">`;
+    const match = links.forLink(link.href);
+    return match ? styleTag(match.css, link.media) : '';
   });
   const unmatched = links.rest().map((s) => styleTag(s.css)).join('');
   head = head.replace(/<head\b[^>]*>/i, (open) => `${open}${/name\s*=\s*["']?viewport/i.test(head) ? '' : '<meta name="viewport" content="width=device-width, initial-scale=1">'}${unmatched}`);
   const htmlTag = /<html\b[^>]*>/i.exec(source)?.[0] ?? '<html>';
   const bodyTag = /<body\b[^>]*>/i.exec(source)?.[0] ?? '<body>';
-  const kept = cleanHtml(styled.html, { keepStyles: true, prefix: '' }).html;
-  const content = rewriteImages(`${kept}\n${svgDefinitions(styled.html, kept)}`, siteImage);
+  const cleaned = cleanHtml(styled.html, { keepStyles: true, prefix: '' });
+  // A copied header and footer are compared too: in the original they're around the content.
+  const kept = [styled.chrome?.header && cleaned.chrome.header.html, cleaned.html, styled.chrome?.footer && cleaned.chrome.footer.html].filter(Boolean).join('\n');
+  const content = rewriteImages(`${kept}\n${svgDefinitions(styled.html, kept)}`, (src) => siteImage(src, styled.base));
   return `<!DOCTYPE html>\n${htmlTag}${head}${bodyTag}\n${content}\n</body></html>\n`;
 }
 
@@ -1223,15 +1520,19 @@ function originalTestDocument(styled) {
 function convertedTestDocument(styled, renderedBody) {
   const siteCss = path.join(ROOT, 'assets/css/main.css');
   const fontLinks = styled.fonts.map((url) => `<link rel="stylesheet" href="${url.replace(/"/g, '%22')}">`).join('');
+  // The copied header and footer as their partials show them, without their scripts.
+  const chrome = styled.chrome?.id ? styled.chrome : null;
+  const part = (place) => (chrome?.[place] ? `<div class="${chrome.wrapperClass}">${chrome.markup[place]}</div>` : '');
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 ${fontLinks}
 <style>body{margin:0}</style>
 ${fs.existsSync(siteCss) ? `<style>${fs.readFileSync(siteCss, 'utf8')}</style>` : ''}
 <style>${styled.stylesheet.content}</style>
-</head><body><main id="main">
+${chrome ? `<style>${chrome.css}</style>` : ''}
+</head><body>${part('header')}<main id="main">
 ${renderedBody}
-</main></body></html>
+</main>${part('footer')}</body></html>
 `;
 }
 
@@ -1685,11 +1986,11 @@ const MODE_LABELS = {
 };
 
 /** --from-html --keep-styles: the old page's HTML and CSS copied as-is, and Claude writes the frontmatter. */
-async function applyStyledConvert(relFile, instruction, original, source, cssFiles, jsFiles = []) {
+async function applyStyledConvert(relFile, instruction, original, source, cssFiles, jsFiles = [], chromeWanted = { header: false, footer: false }) {
   let styled;
   let textPage;
   try {
-    styled = buildStyledPage(source, cssFiles, relFile, jsFiles);
+    styled = await buildStyledPage(source, cssFiles, relFile, jsFiles, chromeWanted);
     textPage = cleanHtml(readHtmlSource(source).html);
   } catch (error) {
     console.error(`  Can't convert: ${error.message}.\n`);
@@ -1698,6 +1999,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   console.log(`  Styles: kept, ${styled.rules} CSS rule${styled.rules === 1 ? '' : 's'} into ${styled.stylesheet.file}${cssFiles.length ? ` (from the HTML and ${cssFiles.join(', ')})` : ' (from the HTML)'}`);
   if (styled.removed.length) console.log(`  Removed: ${styled.removed.join(', ')}`);
   if (styled.scripts.length) console.log(`  Scripts: kept ${styled.scripts.length} (${styled.scripts.filter((x) => x.head).length} in <head>), into ${importedScriptDir(relFile)}/ and from their URLs`);
+  if (styled.chrome?.id) console.log(`  Header and footer: the page's own ${[styled.chrome.header && 'header', styled.chrome.footer && 'footer'].filter(Boolean).join(' and ')}, copied as the site's (${styled.chrome.rules} CSS rules), on every page`);
   if (styled.reveal) console.log(`  Scroll reveal: kept (.${styled.reveal.target} shown with .${styled.reveal.state} as it scrolls into view)`);
 
   if (styled.globals.length) console.log(`  Global CSS: ${styled.globals.map((g) => g.file).join(', ')} (from the site tree)`);
@@ -1710,6 +2012,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   if (!apiKey) {
     console.log(`----- system prompt -----\n${systemPrompt}\n\n----- user prompt -----\n${userPrompt}\n`);
     console.log(`----- body that would be written -----\n${styled.body}\n----- ${styled.stylesheet.file} -----\n${styled.stylesheet.content}`);
+    for (const warning of styled.warnings) console.log(`  warning: ${warning}`);
     console.log('  No ANTHROPIC_API_KEY set, so nothing was sent.\n');
     return false;
   }
@@ -1751,7 +2054,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   problems.push(...tested.problems);
   warnings.push(...tested.warnings);
   for (const line of tested.checks) console.log(`  ${line}`);
-  const files = [styled.stylesheet, ...styled.scriptFiles, ...styled.globalUpdates];
+  const files = [styled.stylesheet, ...styled.scriptFiles, ...styled.globalUpdates, ...(styled.chrome?.files ?? [])];
 
   if (dryRun) {
     console.log(`----- proposed ${relFile} (not written) -----\n`);
@@ -1784,7 +2087,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
   return true;
 }
 
-async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit', source = null, { keepStyles = false, css = [], js = [] } = {}) {
+async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit', source = null, { keepStyles = false, css = [], js = [], header = false, footer = false } = {}) {
   const generate = mode === 'generate';
   const convert = mode === 'convert';
   console.log(`  File: ${relFile}`);
@@ -1813,7 +2116,7 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     return false;
   }
 
-  if (convert && keepStyles) return applyStyledConvert(relFile, instruction, original, source, css, js);
+  if (convert && keepStyles) return applyStyledConvert(relFile, instruction, original, source, css, js, { header, footer });
 
   let htmlPage = null;
   if (convert) {
@@ -2090,7 +2393,7 @@ async function runAdHoc(pageArg, instruction, mode, source) {
     process.exit(1);
   }
 
-  const ok = await applyEdit(relFile, instruction, imageArgs, mode, source, { keepStyles: keepStylesFlag, css: cssArgs, js: jsArgs });
+  const ok = await applyEdit(relFile, instruction, imageArgs, mode, source, { keepStyles: keepStylesFlag, css: cssArgs, js: jsArgs, header: withHeaderFlag, footer: withFooterFlag });
   if (!dryRun) {
     console.log(ok ? `  Review with: git diff -- ${relFile}\n  Validate with: npm run check\n` : '');
     process.exit(ok ? 0 : 3);
@@ -2130,6 +2433,8 @@ async function runQueue() {
         keepStyles: job.markdown !== true && job.keepStyles !== false,
         css: Array.isArray(job.css) ? job.css.map(String) : [],
         js: Array.isArray(job.js) ? job.js.map(String) : [],
+        header: job.withHeader === true,
+        footer: job.withFooter === true,
       });
     }
 
@@ -2182,8 +2487,8 @@ if (flag('chrome')) {
   const usable =
     (mode === 'edit' ? Boolean(instruction) : mode === 'generate' ? fromHtml === undefined : typeof fromHtml === 'string') &&
     ((!markdownFlag && !flag('keep-styles') && !cssArgs.length) || mode === 'convert') &&
-    !(markdownFlag && (cssArgs.length || jsArgs.length)) &&
-    (mode === 'convert' || !jsArgs.length);
+    !(markdownFlag && (cssArgs.length || jsArgs.length || withHeaderFlag || withFooterFlag)) &&
+    (mode === 'convert' || (!jsArgs.length && !withHeaderFlag && !withFooterFlag));
   if (!usable) {
     console.error(`
   Usage:
@@ -2191,6 +2496,7 @@ if (flag('chrome')) {
     node scripts/edit-page.js <page> --generate ["<direction>"]  turn the page's draft into the finished page
     node scripts/edit-page.js <page> --from-html=<file.html> [--css=<file.css>...] ["<direction>"]
                                                               copy an existing HTML page in, as it is, with its own CSS
+      add --with-header and/or --with-footer to make the page's own header and footer the site's, copied as they are
     node scripts/edit-page.js <page> --from-html=<file.html> --markdown ["<direction>"]
                                                               rewrite it as markdown in the site's design instead
     node scripts/edit-page.js --chrome ["<direction>"]        design the header and footer (shown on every page)

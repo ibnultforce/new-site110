@@ -24,10 +24,27 @@
     });
   }
 
+  // The header's look once the page is scrolled (data-scrolled): a see-through header turns
+  // solid, and one set to shrink gets lower.
+  var header = document.querySelector('.site-header[data-scrolled]');
+  if (header) {
+    var ticking = false;
+    var update = function () {
+      ticking = false;
+      header.setAttribute('data-scrolled', String(window.scrollY > 8));
+    };
+    update();
+    window.addEventListener('scroll', function () {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(update);
+    }, { passive: true });
+  }
+
   // Dropdowns open on hover and focus in CSS; this adds arrow-key entry.
   document.querySelectorAll('.group > a').forEach(function (link) {
-    // An imported page may use "group" too (its scripts get its class names back); it isn't the menu.
-    if (link.closest && link.closest('.imported-page')) return;
+    // An imported page (or a header copied from one) may use "group" too; it isn't the menu.
+    if (link.closest && link.closest('.imported-page, .imported-chrome')) return;
     var panel = link.parentElement.querySelector('ul');
     if (!panel) return;
     link.addEventListener('keydown', function (event) {

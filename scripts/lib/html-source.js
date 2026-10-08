@@ -11,8 +11,8 @@
  * href, src, alt and table spans are dropped, which shrinks the prompt a lot
  * without losing anything the markdown can express.
  *
- * With { keepStyles: true } (--keep-styles) the same parts are cut away, but
- * the rest keeps its structure and attributes (classes, ids, inline styles,
+ * With { keepStyles: true } (--keep-styles) the same chrome is cut away, but
+ * what sits outside <main> stays (a chat button, a pop-up form), and the rest keeps its structure and attributes (classes, ids, inline styles,
  * SVG) so it can be shown as-is with the old page's CSS, and every class gets
  * a prefix so the site's own classes and Tailwind utilities never match it.
  * The page's scripts are kept too: the attributes they use (data-*, event
@@ -38,7 +38,7 @@ const DROP_ELEMENTS = ['script', 'style', 'noscript', 'template', 'svg', 'canvas
 // Scripts leave the markup but are kept (scriptsIn); <template>, <canvas> and <noscript> stay for them.
 const DROP_STYLED_ELEMENTS = ['script', 'style', 'head'];
 // class/id tokens that mark site chrome outside the content.
-const CHROME_TOKEN = /^(?:(?:site|page|global|main|top|primary)[-_])?(header|footer|masthead|navbar|topbar|top-bar|sidebar|cookie[-_]?(?:banner|notice|consent)?)$/i;
+const CHROME_TOKEN = /^(?:(?:site|page|global|main|top|primary)[-_])?(header|footer|masthead|navbar|topbar|top-bar|mobile[-_]?(?:menu|nav)|off-?canvas(?:[-_]menu)?|sidebar|cookie[-_]?(?:banner|notice|consent)?)$/i;
 // A start tag, with attribute values that may contain ">".
 const START_TAG = /<([a-zA-Z][\w:-]*)\b((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/g;
 
@@ -115,7 +115,7 @@ function chromeReason(name, attrs, inContent, atEdge) {
   const role = (attribute(attrs, 'role') || '').toLowerCase();
   const tokens = `${attribute(attrs, 'class') || ''} ${attribute(attrs, 'id') || ''}`.split(/\s+/).filter(Boolean);
 
-  if (tokens.some((t) => /^breadcrumbs?$/i.test(t))) return 'navigation';
+  if (tokens.some((t) => /^breadcrumbs?$/i.test(t))) return 'breadcrumbs';
   if (tokens.some((t) => /^cookie/i.test(t)) || role === 'alertdialog') return 'cookie banner';
   if ((name === 'nav' || role === 'navigation') && atEdge && !inContent) return 'navigation';
   if (inContent) return null;
@@ -130,18 +130,26 @@ function chromeReason(name, attrs, inContent, atEdge) {
     if (kind === 'footer') return 'footer';
     if (kind === 'sidebar') return 'sidebar';
     if (kind.startsWith('cookie')) return 'cookie banner';
-    if (kind === 'navbar') return 'navigation';
+    if (kind === 'navbar' || /^(mobile|off)/.test(kind)) return 'navigation';
     return 'header';
   }
   return null;
 }
 
+// What a removed part is, for keeping it as the site's own header or footer (cleanHtml's `chrome`):
+// breadcrumbs and sidebars belong to one page, so they never go there.
+const SITE_WIDE = new Set(['header', 'navigation', 'footer', 'cookie banner']);
+
 /**
  * Removes header, footer, navigation, sidebar and cookie-banner elements.
- * Inside <main> or <article> only navigation and cookie banners go.
+ * Inside <main> or <article> only navigation and cookie banners go. Each
+ * removed site-wide part is added to `collect` (when given) as { place, html }:
+ * place "footer" for a footer, a cookie banner, or anything after the page's
+ * content starts (its <main> or <h1>), else "header".
  */
-function removeChrome(html, removed) {
+function removeChrome(html, removed, collect = null) {
   const tag = /<(\/?)([a-zA-Z][\w-]*)\b([^>]*)>/g;
+  const contentStart = html.search(/<main\b|<h1\b/i);
   const firstHeading = html.search(/<h1\b/i);
   const headings = [...html.matchAll(/<h[1-3]\b/gi)];
   const lastHeading = headings.length ? headings.at(-1).index : -1;
@@ -163,6 +171,10 @@ function removeChrome(html, removed) {
     const end = elementEnd(html, rawName, m.index + whole.length);
     if (end < 0) continue; // unclosed: leave it to Claude rather than cut the rest of the page
     out += html.slice(last, m.index);
+    if (collect && SITE_WIDE.has(reason)) {
+      const after = reason === 'footer' || reason === 'cookie banner' || (contentStart >= 0 && m.index > contentStart);
+      collect.push({ place: after ? 'footer' : 'header', html: html.slice(m.index, end) });
+    }
     last = end;
     tag.lastIndex = end;
     removed[reason] = (removed[reason] || 0) + 1;
@@ -271,19 +283,29 @@ export function cleanHtml(source, { keepStyles = false, prefix = '' } = {}) {
   // Every class and id of the whole page, before its header and footer go (see removedIds below).
   const whole = keepStyles ? styledTags(html, '') : null;
 
-  // When <main> holds most of the page, everything around it is the site, not the page.
+  // Skip links jump past the old site's header; the site has its own.
+  html = html.replace(/<a\b[^>]*\bhref\s*=\s*["']#[^"']*["'][^>]*>\s*skip\b[\s\S]*?<\/a\s*>/gi, () => {
+    removed['skip link'] = (removed['skip link'] || 0) + 1;
+    return '';
+  });
+
+  // When <main> holds most of the page, everything around it is the site, not the page. A copy
+  // with its styles keeps the rest too, bar the chrome removed below: what sits outside <main>
+  // then is the page's own (a chat button, a pop-up form, a toast), and it must look the same.
   const main = innerOf(html, MAIN_TAG) ?? innerOf(html, MAIN_ROLE);
   const pageText = visibleText(removeChrome(html, {})).length;
-  if (main !== null && visibleText(main).length >= pageText * 0.3) {
+  if (!keepStyles && main !== null && visibleText(main).length >= pageText * 0.3) {
     if (visibleText(main).length < visibleText(html).length) removed['everything outside <main>'] = 1;
-    // Kept with its own tag when styles are kept: its classes may carry the layout.
-    html = keepStyles ? (outerOf(html, MAIN_TAG) ?? outerOf(html, MAIN_ROLE)) : main;
+    html = main;
   }
 
-  html = removeChrome(html, removed);
+  const chromeParts = [];
+  html = removeChrome(html, removed, keepStyles ? chromeParts : null);
 
   if (keepStyles) {
     const styled = styledTags(html.trim(), prefix);
+    // The removed header and footer, styled the same way, for a copy that keeps them as the site's.
+    const part = (place) => styledTags(chromeParts.filter((c) => c.place === place).map((c) => c.html.trim()).join('\n'), prefix);
     // What the old <html> and <body> carried: their rules ("body.home .x") now describe the wrapper.
     const rootClasses = new Set();
     const rootIds = new Set();
@@ -313,6 +335,8 @@ export function cleanHtml(source, { keepStyles = false, prefix = '' } = {}) {
       removedIds: [...whole.ids].filter((id) => !styled.ids.has(id)),
       removedClasses: [...whole.classes].filter((c) => !styled.classes.has(c)),
       removed: removedList(removed),
+      // { header, footer }: each { html, classes, ids }, html empty when the page had none.
+      chrome: { header: part('header'), footer: part('footer') },
     };
   }
 
@@ -383,28 +407,66 @@ export function rewriteImages(html, resolve) {
 }
 
 /**
+ * The stylesheet a <link> loads, as browsers apply it: { href, media } (media
+ * only when it isn't "all"), or null for a link that isn't an active
+ * stylesheet (alternate, disabled, a preload or icon). The non-blocking
+ * patterns count as what they become once loaded: media="print"
+ * onload="this.media='all'", and rel="preload" as="style"
+ * onload="this.rel='stylesheet'". `attrs` is the tag's attribute text.
+ */
+export function linkedStylesheet(attrs) {
+  const onload = attribute(attrs, 'onload') || '';
+  let rel = (attribute(attrs, 'rel') || '').toLowerCase();
+  if (/\bpreload\b/.test(rel) && /\brel\s*=\s*\\?["']stylesheet\\?["']/i.test(onload)) rel = 'stylesheet';
+  if (!/\bstylesheet\b/.test(rel) || /\balternate\b/.test(rel) || /(^|\s)disabled(\s|=|$)/i.test(attrs)) return null;
+  const href = (attribute(attrs, 'href') || '').trim();
+  if (!href) return null;
+  const media = (/\bmedia\s*=\s*\\?["']([^"'\\]+)\\?["']/i.exec(onload)?.[1] ?? attribute(attrs, 'media') ?? '').trim();
+  return { href, ...(media && !/^all$/i.test(media) ? { media } : {}) };
+}
+
+/**
  * The page's stylesheets in cascade order: { inline: css } for each <style>
- * block and { href } for each <link rel="stylesheet">, each with its `media`
- * when it has one other than "all" (a print stylesheet must stay print-only).
- * Alternate stylesheets and disabled ones are left out, as browsers do.
+ * block and { href } for each linked stylesheet (see linkedStylesheet), each
+ * with its `media` when it has one other than "all" (a print stylesheet must
+ * stay print-only). A <noscript> fallback is left out (scripts run, so it
+ * doesn't apply), and so is a second link to the same sheet.
  */
 export function stylesheetsIn(source) {
-  const html = source.replace(/<!--[\s\S]*?-->/g, '');
+  const html = source.replace(/<!--[\s\S]*?-->/g, '').replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\s*>/gi, '');
   const sheets = [];
+  const seen = new Set();
   for (const m of html.matchAll(/<style\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/style\s*>|<link\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
-    const attrs = m[1] ?? m[3];
-    const media = (attribute(attrs, 'media') || '').trim();
-    const extra = media && !/^all$/i.test(media) ? { media } : {};
     if (m[2] !== undefined) {
-      if (m[2].trim()) sheets.push({ inline: m[2], ...extra });
+      const media = (attribute(m[1], 'media') || '').trim();
+      if (m[2].trim()) sheets.push({ inline: m[2], ...(media && !/^all$/i.test(media) ? { media } : {}) });
       continue;
     }
-    const rel = (attribute(attrs, 'rel') || '').toLowerCase();
-    if (!/\bstylesheet\b/.test(rel) || /\balternate\b/.test(rel) || /(^|\s)disabled(\s|=|$)/i.test(attrs)) continue;
-    const href = attribute(attrs, 'href');
-    if (href) sheets.push({ href: href.trim(), ...extra });
+    const link = linkedStylesheet(m[3]);
+    if (!link || seen.has(link.href)) continue;
+    seen.add(link.href);
+    sheets.push(link);
   }
   return sheets;
+}
+
+/**
+ * The address the page was published at, for resolving its relative links:
+ * its <base href>, else its canonical link, else og:url. null when it names none.
+ */
+export function pageBaseUrl(source) {
+  const head = /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(source)?.[1] ?? '';
+  const candidates = [];
+  for (const m of head.matchAll(/<(base|link|meta)\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi)) {
+    const [, tag, attrs] = m;
+    if (/^base$/i.test(tag)) candidates.push([0, attribute(attrs, 'href')]);
+    else if (/^link$/i.test(tag) && /^canonical$/i.test((attribute(attrs, 'rel') || '').trim())) candidates.push([1, attribute(attrs, 'href')]);
+    else if (/^meta$/i.test(tag) && /^og:url$/i.test((attribute(attrs, 'property') || '').trim())) candidates.push([2, attribute(attrs, 'content')]);
+  }
+  for (const [, url] of candidates.sort((a, b) => a[0] - b[0])) {
+    if (/^https?:\/\//i.test((url || '').trim())) return url.trim();
+  }
+  return null;
 }
 
 const FONT_SIZES = { 1: '10px', 2: '13px', 3: '16px', 4: '18px', 5: '24px', 6: '32px', 7: '48px' };
