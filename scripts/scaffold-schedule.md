@@ -33,7 +33,7 @@ Fields:
   warning; anything over 5MB or not a jpg/png/gif/webp is still named in the
   body's image list but not shown visually.
 - `research` (optional, default `true`) — let Claude use web search for
-  supporting facts, same as `npm run blog:generate --research`.
+  supporting facts.
 - `done` / `completedDate` — bookkeeping the script maintains; don't hand-edit.
 
 The generated page can link to other real pages on the site — Claude is given

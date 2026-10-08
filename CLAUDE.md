@@ -23,7 +23,7 @@ content/data/*.json  navigation, shared facts, FAQ, redirects, blog queue
 content/<type>/*.md  the pages themselves
 templates/layouts/   page.html (blank: shows only the page's body) and imported.html
 templates/partials/  the page shell (base.html), header and footer
-styles/main.css      Tailwind source: theme tokens, utilities, component layer
+styles/main.css      Tailwind source: the font, the brand accent and a small base
 assets/              compiled CSS, JS, images — copied to dist/assets
 scripts/             build, dev server, checker, scaffolder, blog writer, page editor
 knowledge/           what Claude knows from previous work: owner's notes + automatic work log
