@@ -777,27 +777,24 @@ own.
 **Release an update to existing sites**
 
 Sites copied from this repo get its changes through the Twinstack web app's one-click update
-(`server/src/site-update.js` there), which installs the newest release: the highest `vX.Y.Z`
-tag, which the release workflow creates when `version` changes. Commits after the last release
-don't reach existing sites until the next one.
+(`server/src/site-update.js` there). **Every push to the default branch is an update:** a site
+is offered one whenever this repo's newest commit isn't in its history yet, and installing it
+brings everything up to that commit, half-finished work included. Commit messages are listed on
+the site's Build tools screen (prefixes like `fix:` dropped), so write them as plain sentences.
 
 1. Say who owns each file in `twinstack-update.json`. `site` globs are the owner's and are never
-   changed (only added, when a release brings a file the site never had). `template` globs are
-   this repo's and take the release's version. `keepDesigned` (the header and footer) stays the
-   owner's while it carries `data-designed`. `packages` (`package.json`) is the release's plus
-   the owner's extra scripts and packages. Anything else is merged line by line, and Claude
-   combines the lines both sides changed. A new file type the app or Claude writes in a site
-   belongs under `site`, or updates will treat it as shared.
-2. Files a release deletes stay in existing sites, because their pages may still use them. List
-   a file in `remove` to delete it from them.
+   changed (only added, when an update brings a file the site never had). `template` globs are
+   this repo's and take its version. `keepDesigned` (the header and footer) stays the owner's
+   while it carries `data-designed`. `packages` (`package.json`) is this repo's plus the owner's
+   extra scripts and packages. Anything else is merged line by line, and Claude combines the
+   lines both sides changed. A new file type the app or Claude writes in a site belongs under
+   `site`, or updates will treat it as shared.
+2. Files deleted here stay in existing sites, because their pages may still use them. List a
+   file in `remove` to delete it from them.
 3. When a change needs the site's own files in a new shape, add a migration
-   (`scripts/migrations/README.md`) and run `npm run migrate` here.
-4. Raise `version`, write `notes` (one plain sentence per change, shown to site owners before
-   they update), commit and push. `.github/workflows/release.yml` then tags the commit
-   `v<version>` (only in this repo, `DemoProjectDjango/twinstack-site`: change its `if` if the
-   repo moves). Pushes that don't raise the version release nothing.
+   (`scripts/migrations/README.md`) and run `npm run migrate` here, in the same push.
 
-Each update is one merge commit with a `Twinstack-Update: <version>` trailer, so the changelog
+Each update is one merge commit with a `Twinstack-Update: <template commit>` trailer, so the changelog
 reads `git log --first-parent`: an update is one entry, not the template's commits. The web app
 builds and checks the updated site before publishing it, and refuses an update that adds a check
 error the site didn't already have.
