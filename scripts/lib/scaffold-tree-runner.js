@@ -19,7 +19,7 @@
  *
  * Predefined content: if a file exists at
  * <dir of the tree file>/site-tree-content/<path>.md for a given tree path
- * (e.g. scripts/site-tree-content/contact.md for the "contact.html" line in
+ * (e.g. scripts/site-tree-content/about.md for an "about.html" line in
  * scripts/site-tree.md), its contents are written verbatim instead of the
  * generic frontmatter skeleton — the instruction text after " — " is ignored
  * for that path. Any path with no matching file scaffolds exactly as before.

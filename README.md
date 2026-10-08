@@ -55,9 +55,10 @@ npm run seo:report                            # seo-report.html: every page as a
 
 `npm run scaffold` walks `scripts/site-tree.md`. For any listed path, if
 `scripts/site-tree-content/<path>.md` exists (same path, `.html` → `.md`),
-that file is written verbatim instead of a generic placeholder — e.g.
-`scripts/site-tree-content/contact.md` for the `contact.html` line. Paths
-with no matching file scaffold from the generic skeleton as before.
+that file is written verbatim instead of a generic placeholder: add
+`scripts/site-tree-content/about.md`, say, and the `about.html` line uses it.
+The template ships none, so every path scaffolds from the generic skeleton
+until you add one.
 
 ## Static files
 
