@@ -19,6 +19,7 @@
     "scaffold:schedule": "node scripts/scaffold-schedule.js",
     "scaffold:schedule:preview": "node scripts/scaffold-schedule.js --dry-run",
     "changelog": "node scripts/changelog.js",
+    "migrate": "node scripts/migrate.js",
     "nav:add": "node scripts/nav.js",
     "nav:remove": "node scripts/nav-remove.js",
     "page:edit": "node --env-file-if-exists=.env scripts/edit-page.js",

@@ -101,5 +101,8 @@
   "automation": {
     "model": "claude-opus-5-5",
     "defaultAuthor": ""
+  },
+  "updates": {
+    "migrations": []
   }
 }

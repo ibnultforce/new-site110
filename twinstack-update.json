@@ -1,0 +1,39 @@
+{
+  "version": "1.0.0",
+  "notes": [
+    "Your site can now be updated with one click, keeping your pages, content and design."
+  ],
+  "site": [
+    "content/**",
+    "site.config.json",
+    "knowledge/**",
+    "scripts/site-tree.md",
+    "scripts/site-tree-content/**",
+    "scripts/scaffold-schedule.md",
+    "scripts/page-commands.json",
+    "styles/global/**",
+    "assets/css/**",
+    "assets/js/imported/**",
+    "assets/img/**",
+    "CHANGELOG.md",
+    "CNAME"
+  ],
+  "keepDesigned": [
+    "templates/partials/header.html",
+    "templates/partials/footer.html"
+  ],
+  "packages": "package.json",
+  "template": [
+    "scripts/**",
+    "templates/**",
+    "assets/js/*.js",
+    ".github/workflows/**",
+    "package-lock.json",
+    "twinstack-update.json",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "TAILWIND-GUIDELINES.md",
+    ".env.example"
+  ],
+  "remove": []
+}

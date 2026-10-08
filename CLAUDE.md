@@ -46,6 +46,7 @@ npm run scaffold:preview                # same, print the plan, write nothing
 npm run scaffold:schedule               # run every due job in scripts/scaffold-schedule.md, Claude writes real copy
 npm run scaffold:schedule:preview       # same, print what's due, write and mark nothing
 npm run changelog                       # regenerate CHANGELOG.md from git log
+npm run migrate                         # run scripts/migrations/ not yet recorded in site.config.json
 npm run page:edit -- <page> "<instruction>"        # edit one existing content/template file with Claude, now
 npm run page:edit:preview -- <page> "<instruction>" # same, print only, write nothing
 npm run page:edit                                  # run every queued edit in scripts/page-commands.json
@@ -772,6 +773,31 @@ format (the line, the indented summary points and their limits) and the two
 rotation limits live in both places. `edit-md.js` imports `knowledge.js`
 optionally, because the web app installs `edit-md.js` into older copies on its
 own.
+
+**Release an update to existing sites**
+
+Sites copied from this repo get its changes through the Twinstack web app's one-click update
+(`server/src/site-update.js` there), which installs the newest release: the highest `vX.Y.Z`
+tag. Commits that aren't tagged never reach existing sites.
+
+1. Say who owns each file in `twinstack-update.json`. `site` globs are the owner's and are never
+   changed (only added, when a release brings a file the site never had). `template` globs are
+   this repo's and take the release's version. `keepDesigned` (the header and footer) stays the
+   owner's while it carries `data-designed`. `packages` (`package.json`) is the release's plus
+   the owner's extra scripts and packages. Anything else is merged line by line, and Claude
+   combines the lines both sides changed. A new file type the app or Claude writes in a site
+   belongs under `site`, or updates will treat it as shared.
+2. Files a release deletes stay in existing sites, because their pages may still use them. List
+   a file in `remove` to delete it from them.
+3. When a change needs the site's own files in a new shape, add a migration
+   (`scripts/migrations/README.md`) and run `npm run migrate` here.
+4. Raise `version`, write `notes` (one plain sentence per change, shown to site owners before
+   they update), commit, then `git tag v<version>` and push the tag.
+
+Each update is one merge commit with a `Twinstack-Update: <version>` trailer, so the changelog
+reads `git log --first-parent`: an update is one entry, not the template's commits. The web app
+builds and checks the updated site before publishing it, and refuses an update that adds a check
+error the site didn't already have.
 
 ## Frontmatter reference
 

@@ -25,7 +25,7 @@ export function generateChangelog(existingContent) {
   let raw;
   try {
     raw = execSync(
-      `git log --since="${since}" --date=short --name-status --pretty=format:"${MARKER}%ad|%an|%s"`,
+      `git log --first-parent --since="${since}" --date=short --name-status --pretty=format:"${MARKER}%ad|%an|%s"`,
       { encoding: 'utf8', maxBuffer: 1024 * 1024 * 32 },
     );
   } catch (error) {
