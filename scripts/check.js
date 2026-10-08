@@ -45,12 +45,14 @@ const served = new Set();
 })(paths.dist);
 
 /* Duplicate URLs */
+// "/pricing" and "/pricing/" are one address: both build pricing/index.html.
 const seen = new Map();
 for (const entry of all) {
-  if (seen.has(entry.url)) {
-    errors.push(`duplicate URL ${entry.url}: ${seen.get(entry.url)} and ${entry.sourceFile}`);
+  const address = entry.url.endsWith('/') || path.extname(entry.url) ? entry.url : `${entry.url}/`;
+  if (seen.has(address)) {
+    errors.push(`duplicate URL ${entry.url}: ${seen.get(address)} and ${entry.sourceFile}`);
   }
-  seen.set(entry.url, entry.sourceFile);
+  seen.set(address, entry.sourceFile);
 }
 
 /* Internal links and images */
