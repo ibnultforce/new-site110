@@ -216,6 +216,9 @@ function rotateLog() {
 
 // What summarizeChange() sends at most of each side of a change.
 const MAX_DIFF_CHARS = 9000;
+// The work-log summary's model, whatever model wrote the change. The Twinstack web app's credits
+// price it (PRICES in its server/src/credits.js).
+const SUMMARY_MODEL = 'claude-haiku-4-5';
 
 /**
  * The part of a file that changed, as "-"/"+" lines: the lines both versions
@@ -241,9 +244,10 @@ function changedRegion(before, after) {
  * Asks Claude for a few points saying what a change actually did, for the
  * work log: sections added, removed or moved, wording changed, images, fields.
  * `notes` adds facts the diff can't show (for a page imported with its own
- * styles, say). One small request (a few hundred tokens). Returns the points,
- * or [] when there's no key or anything goes wrong: a missing summary never
- * fails the change.
+ * styles, say). One small request (a few hundred tokens), always on
+ * SUMMARY_MODEL: listing what a diff changed doesn't need the page writer's
+ * model. Returns the points, or [] when there's no key or anything goes wrong:
+ * a missing summary never fails the change.
  */
 export async function summarizeChange({ apiKey, model, command, file, instruction, before = '', after = '', notes = '' }) {
   if (!apiKey || !model) return [];
@@ -265,7 +269,7 @@ ${removed || '(nothing)'}
 ----- added -----
 ${added || '(nothing)'}
 ----- end -----`;
-    const reply = await requestClaude({ apiKey, model, systemPrompt, userContent: userPrompt, maxTokens: 2000, effort: 'low' });
+    const reply = await requestClaude({ apiKey, model: SUMMARY_MODEL, systemPrompt, userContent: userPrompt, maxTokens: 2000, effort: 'low' });
     if (reply.stopReason === 'refusal') return [];
     return cleanSummary(reply.text.split('\n').filter((line) => /^\s*[-*•]\s+\S/.test(line)));
   } catch (error) {
