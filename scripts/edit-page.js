@@ -96,7 +96,7 @@ import { TemplateEngine } from './lib/template.js';
 import { renderCheck, scriptCheck } from './lib/render-check.js';
 import { PAGE_MAX_TOKENS, bannedPhraseWarnings, requestClaude, resolveImages, stripFence } from './lib/claude-writer.js';
 import { knowledgePrompt, recordWork, summarizeChange } from './lib/knowledge.js';
-import { BLANK_LAYOUT_RULES, DESIGN_RULES, layoutShowsTitle, styleReference } from './lib/design-rules.js';
+import { BLANK_LAYOUT_RULES, DESIGN_RULES, isDesigned, layoutShowsTitle, styleReference } from './lib/design-rules.js';
 import { CHROME_RULES, COPIED_MARK, FOOTER_FILE, HEADER_FILE, chromeChecks, chromeData, readChromeReply } from './lib/chrome.js';
 import {
   MAX_CLEAN_CHARS,
@@ -164,6 +164,9 @@ const withFooterFlag = Boolean(flag('with-footer'));
 const site = readJson(path.join(ROOT, 'site.config.json'));
 // The Twinstack web app passes the account's chosen model; run by hand, the site's own setting.
 const CLAUDE_MODEL = process.env.TWINSTACK_MODEL || site.automation.model;
+// A cheaper model for routine page work, set by the Twinstack web app when its proxy can route it
+// (a deepseek-* id). pageModel decides when it's used; CLAUDE_MODEL takes over if it fails.
+const FAST_MODEL = process.env.TWINSTACK_FAST_MODEL || '';
 const apiKey = process.env.ANTHROPIC_API_KEY;
 
 /* ------------------------------------------------------------------ queue */
@@ -1673,14 +1676,30 @@ function userContent(userPrompt, images) {
 }
 
 /**
+ * The model for a page request. The cheaper FAST_MODEL does routine page work: an edit or a
+ * generated page under content/ with no images to look at, when there's a design for it to follow:
+ * another designed page (styleReference), or for an edit the page's own design. The site's first
+ * design, images, conversions and templates stay with CLAUDE_MODEL, which also takes over when
+ * FAST_MODEL's result fails the checks.
+ */
+function pageModel(relFile, mode, images, original) {
+  if (!FAST_MODEL || FAST_MODEL === CLAUDE_MODEL) return CLAUDE_MODEL;
+  if (mode !== 'edit' && mode !== 'generate') return CLAUDE_MODEL;
+  if (!relFile.startsWith('content/') || !relFile.endsWith('.md')) return CLAUDE_MODEL;
+  if (images.some((image) => image.block)) return CLAUDE_MODEL;
+  if (mode === 'edit' && isDesigned(parseFrontmatter(original).body)) return FAST_MODEL;
+  return styleReference(relFile) ? FAST_MODEL : CLAUDE_MODEL;
+}
+
+/**
  * Asks Claude for the new file. If the API rejects a URL image it couldn't
  * fetch, the request is retried once with URL images named but not shown.
  */
-async function askClaude(buildPrompts, images, { cache = false } = {}) {
+async function askClaude(buildPrompts, images, { cache = false, model = CLAUDE_MODEL } = {}) {
   // The prompts describe which images are shown, so they're rebuilt for the retry.
   const call = (list) => {
     const { systemPrompt, userPrompt } = buildPrompts(list);
-    return requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, userContent: userContent(userPrompt, list), maxTokens: MAX_TOKENS, effort: 'high', cache });
+    return requestClaude({ apiKey, model, systemPrompt, userContent: userContent(userPrompt, list), maxTokens: MAX_TOKENS, effort: 'high', cache });
   };
   try {
     return { ...(await call(images)), images };
@@ -2173,32 +2192,63 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     return false;
   }
 
-  console.log(`  Model: ${CLAUDE_MODEL}\n`);
-  // A conversion is always reviewed, and the review resends this whole request.
-  const reply = await askClaude(buildPrompts, images, { cache: Boolean(convert) });
+  // One request and the checks on its reply.
+  const attempt = async (useModel) => {
+    // A conversion is always reviewed, and the review resends this whole request.
+    const reply = await askClaude(buildPrompts, images, { cache: Boolean(convert), model: useModel });
+    if (reply.stopReason === 'refusal') return { reply };
+    // Content files are taken from their frontmatter on; a template or other file is the whole reply.
+    let raw = generate || convert ? fileFromReply(reply.text) : stripFence(reply.text);
+    let checks = [];
+    let problems;
+    let warnings;
+    // Data files a multi-file page edit changes, written with the page.
+    let extraFiles = [];
+    if (multi) {
+      ({ raw, files: extraFiles, problems, warnings } = readPageEditReply(reply.text, relFile, original, sources));
+      if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the files are incomplete`);
+    } else if (convert) {
+      ({ raw, problems, warnings, checks } = await reviewConversion({ reply, buildPrompts, original: base, htmlPage, relFile }));
+      if (dropped.length) warnings.push(`replaced the old page's content: its body and ${dropped.join(', ')}`);
+    } else {
+      const checked = generate ? generateChecks(original, raw, reply.images, relFile) : editChecks(original, raw, isContent);
+      problems = [...checked.problems];
+      ({ warnings } = checked);
+      if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the file is incomplete`);
+    }
+    return { reply, raw, checks, problems, warnings, extraFiles };
+  };
+
+  // Routine work on a site with a design goes to the cheaper model first; whatever it gets wrong
+  // (an error, a refusal, a reply the checks reject) is asked again of CLAUDE_MODEL.
+  let model = pageModel(relFile, mode, images, original);
+  console.log(`  Model: ${model}${model === CLAUDE_MODEL ? '' : ` (following the site's design; ${CLAUDE_MODEL} takes over if its result fails the checks)`}\n`);
+  let result = null;
+  let fellBack = '';
+  try {
+    result = await attempt(model);
+  } catch (error) {
+    if (model === CLAUDE_MODEL) throw error;
+    console.log(`  ! ${model} failed: ${error.message.slice(0, 200)}`);
+  }
+  if (model !== CLAUDE_MODEL && (!result || result.reply.stopReason === 'refusal' || result.problems.length)) {
+    for (const problem of result?.problems ?? []) console.log(`  ! ${model}: ${problem}`);
+    fellBack = !result ? 'failed' : result.reply.stopReason === 'refusal' ? 'was declined' : "didn't pass the checks";
+    console.log(`  Asking ${CLAUDE_MODEL} instead…\n`);
+    const cheap = model;
+    model = CLAUDE_MODEL;
+    result = await attempt(model);
+    fellBack = `${cheap}'s version ${fellBack}, so ${model} wrote this instead`;
+  }
+  const { reply } = result;
   if (reply.stopReason === 'refusal') {
     console.error(`  Claude declined this request. Rephrase the ${{ edit: 'instruction', generate: 'draft', convert: 'direction' }[mode]} and try again.\n`);
     return false;
   }
-  // Content files are taken from their frontmatter on; a template or other file is the whole reply.
-  let raw = generate || convert ? fileFromReply(reply.text) : stripFence(reply.text);
-  let checks = [];
-  let problems;
-  let warnings;
-  // Data files a multi-file page edit changes, written with the page.
-  let extraFiles = [];
-  if (multi) {
-    ({ raw, files: extraFiles, problems, warnings } = readPageEditReply(reply.text, relFile, original, sources));
-    if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the files are incomplete`);
-  } else if (convert) {
-    ({ raw, problems, warnings, checks } = await reviewConversion({ reply, buildPrompts, original: base, htmlPage, relFile }));
-    if (dropped.length) warnings.push(`replaced the old page's content: its body and ${dropped.join(', ')}`);
-  } else {
-    const checked = generate ? generateChecks(original, raw, reply.images, relFile) : editChecks(original, raw, isContent);
-    problems = [...checked.problems];
-    ({ warnings } = checked);
-    if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the file is incomplete`);
-  }
+  const { raw, problems, warnings, extraFiles } = result;
+  let { checks } = result;
+  if (fellBack) checks = [...checks, fellBack];
+  else if (model !== CLAUDE_MODEL) checks = [...checks, `Written by ${model}, following the site's existing design, and passed the checks`];
 
   if (dryRun) {
     console.log(`----- proposed ${relFile} (not written) -----\n`);
@@ -2208,7 +2258,7 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     if (warnings.length) console.log(`\n  warning: ${warnings.join('\n  warning: ')}`);
     if (proposalOut) {
       const summary = await summaryFor({ mode, relFile, instruction: instruction || defaultLogInstruction(mode, htmlPage?.file), before: withExtras(relFile, original, extraFiles, 'before'), after: withExtras(relFile, raw, extraFiles, 'after') });
-      writeProposal({ relFile, mode, instruction, images: reply.images, raw, problems, warnings, source: htmlPage?.file, files: extraFiles, checks, summary });
+      writeProposal({ relFile, mode, instruction, images: reply.images, raw, problems, warnings, source: htmlPage?.file, files: extraFiles, checks, summary, model });
     }
     return false;
   }
@@ -2356,7 +2406,7 @@ function defaultLogInstruction(mode, source) {
 }
 
 /** Saves a dry-run's proposed file for tools that show it and then write exactly that version. */
-function writeProposal({ relFile, mode, instruction, images, raw, problems, warnings, source, files, checks, summary }) {
+function writeProposal({ relFile, mode, instruction, images, raw, problems, warnings, source, files, checks, summary, model = CLAUDE_MODEL }) {
   const target = path.resolve(ROOT, String(proposalOut));
   if (!target.startsWith(ROOT + path.sep)) {
     console.error(`  --proposal-out must be inside the repository, not ${proposalOut}.`);
@@ -2377,7 +2427,8 @@ function writeProposal({ relFile, mode, instruction, images, raw, problems, warn
     content: raw.endsWith('\n') ? raw : `${raw}\n`,
     problems,
     warnings,
-    model: CLAUDE_MODEL,
+    // The model that wrote it: FAST_MODEL or CLAUDE_MODEL (pageModel).
+    model,
     createdAt: new Date().toISOString(),
   };
   fs.mkdirSync(path.dirname(target), { recursive: true });

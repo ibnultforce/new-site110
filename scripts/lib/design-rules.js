@@ -58,6 +58,9 @@ const REFERENCE_CHARS = 14000;
 // a page that still has one hasn't been designed yet, so it's no reference.
 const STARTER_TEXT = /One sentence on (what|how)|Replace this with|Opening paragraph: the specific situation/;
 
+/** True when a page body is a design of its own: HTML sections, not a starter skeleton. */
+export const isDesigned = (body) => /<section\b[^>]*class=/.test(body) && !STARTER_TEXT.test(body);
+
 /**
  * A page the site already has, for Claude to match its look: the homepage, or
  * when that's the file being written (or missing), the most recently changed
@@ -67,7 +70,7 @@ export function styleReference(relFile = '') {
   const pages = contentFiles().filter((file) => file !== relFile);
   const designed = pages
     .map((file) => ({ file, body: bodyOf(file) }))
-    .filter(({ body }) => /<section\b[^>]*class=/.test(body) && !STARTER_TEXT.test(body));
+    .filter(({ body }) => isDesigned(body));
   if (!designed.length) return '';
   const home = designed.find(({ file }) => file === 'content/pages/home.md');
   const { file, body } = home || designed.sort((a, b) => mtime(b.file) - mtime(a.file))[0];
