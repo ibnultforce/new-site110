@@ -9,6 +9,10 @@
       {
         "label": "About",
         "url": "/about.html"
+      },
+      {
+        "label": "New",
+        "url": "/contact.html"
       }
     ],
     "cta": {
@@ -75,7 +79,7 @@
       "theme": "dark",
       "layout": "columns",
       "showTagline": true,
-      "showContact": true,
+      "showContact": false,
       "showSocial": true,
       "cta": {
         "title": "Planning a celebration?",
