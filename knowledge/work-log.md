@@ -14,3 +14,4 @@ Written automatically: one line per change Claude made to this site that was kep
   - Updated CTA strip to golden wheat background (#f0c987) with dark brown text (#2b1c14) and terracotta button (#a8482a) with white text.
   - Changed all footer links, headings, and social icons to use cream (#fbf4e6/#ecdcc2) with golden wheat (#f0c987) hover states and adjusted focus outlines.
   - Modified decorative gradients and dividers to use subtle cream and warm tones at low opacity, and changed logo fallback property from logoOnLight to logoOnDark.
+- 2026-10-09 · page:edit · content/pages/home.md · Change only the story section heading "Small team, slow dough" to "Small team". Leave everything else on the page exactly as it is.

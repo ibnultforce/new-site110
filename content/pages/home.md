@@ -90,7 +90,7 @@ description: Under 160 characters, written for search results.
   <section id="story" class="bg-[#f3e6cc]">
     <div class="mx-auto grid max-w-7xl gap-10 px-5 py-16 sm:px-8 md:py-24 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
       <div>
-        <h2 class="font-['Fraunces',Georgia,serif] text-3xl font-semibold tracking-tight text-[#2b1c14] sm:text-4xl md:text-5xl">Small team, slow dough</h2>
+        <h2 class="font-['Fraunces',Georgia,serif] text-3xl font-semibold tracking-tight text-[#2b1c14] sm:text-4xl md:text-5xl">Small team</h2>
         <p class="mt-5 inline-block rounded-xl border border-dashed border-[#a8482a]/60 bg-white/60 px-4 py-2 text-sm font-medium text-[#8f3b21]">[Add year founded]</p>
       </div>
       <div class="space-y-5 text-lg leading-relaxed text-[#4a382c]">
