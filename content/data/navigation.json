@@ -12,16 +12,29 @@
       }
     ],
     "cta": {
-      "label": "Contact us",
+      "label": "Order a cake",
       "url": "/contact.html"
     }
   },
   "footer": [
     {
-      "title": "Pages",
+      "title": "Visit us",
       "links": [
         {
-          "label": "About",
+          "label": "Opening hours & finding us",
+          "url": "/contact.html"
+        },
+        {
+          "label": "Order a celebration cake",
+          "url": "/contact.html"
+        }
+      ]
+    },
+    {
+      "title": "Explore",
+      "links": [
+        {
+          "label": "Our story",
           "url": "/about.html"
         },
         {
@@ -31,10 +44,6 @@
         {
           "label": "Contact",
           "url": "/contact.html"
-        },
-        {
-          "label": "RSS feed",
-          "url": "/rss.xml"
         }
       ]
     }
@@ -57,13 +66,24 @@
     "header": {
       "theme": "light",
       "layout": "right",
-      "sticky": true
+      "sticky": true,
+      "style": "bar",
+      "transparent": false,
+      "shrink": false
     },
     "footer": {
       "theme": "dark",
+      "layout": "columns",
       "showTagline": true,
       "showContact": true,
-      "copyright": ""
+      "showSocial": true,
+      "cta": {
+        "title": "Planning a celebration?",
+        "text": "Order a handmade celebration cake from Harbour Street Bakery.",
+        "label": "Order a cake",
+        "url": "/contact.html"
+      },
+      "copyright": "© Harbour Street Bakery"
     }
   }
 }

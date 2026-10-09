@@ -1,37 +1,37 @@
-<footer data-designed="claude" class="site-footer relative isolate overflow-hidden bg-[#F97316] pb-10 pt-16 text-base text-zinc-950 sm:pt-20">
-  <div aria-hidden="true" class="pointer-events-none absolute -right-24 -top-32 -z-10 size-[28rem] rounded-full bg-radial from-white/30 to-transparent"></div>
-  <div aria-hidden="true" class="pointer-events-none absolute -bottom-40 -left-24 -z-10 size-[26rem] rounded-full bg-radial from-[#c2410c]/30 to-transparent"></div>
+<footer data-designed="claude" class="site-footer relative isolate overflow-hidden bg-[#3b2418] pb-10 pt-16 text-base text-[#ecdcc2] sm:pt-20">
+  <div aria-hidden="true" class="pointer-events-none absolute -right-24 -top-32 -z-10 size-[28rem] rounded-full bg-radial from-[#f0c987]/15 to-transparent"></div>
+  <div aria-hidden="true" class="pointer-events-none absolute -bottom-40 -left-24 -z-10 size-[26rem] rounded-full bg-radial from-[#c8643b]/25 to-transparent"></div>
 
   <div class="mx-auto w-full max-w-7xl px-5 sm:px-8">
     {{# if nav.appearance.footer.cta }}
-    <div class="mb-14 flex flex-col gap-6 rounded-3xl bg-zinc-950 p-8 text-white shadow-xl shadow-[#9a3412]/30 ring-1 ring-zinc-950/10 sm:p-10 md:flex-row md:items-center md:justify-between">
+    <div class="mb-14 flex flex-col gap-6 rounded-3xl bg-[#f0c987] p-8 text-[#2b1c14] shadow-xl shadow-black/30 ring-1 ring-[#fbf4e6]/20 sm:p-10 md:flex-row md:items-center md:justify-between">
       <div class="max-w-2xl">
-        {{# if nav.appearance.footer.cta.title }}<h2 class="text-2xl font-semibold tracking-tight text-white sm:text-3xl">{{ nav.appearance.footer.cta.title }}</h2>{{/ if }}
-        {{# if nav.appearance.footer.cta.text }}<p class="mt-2 text-base leading-relaxed text-zinc-300">{{ nav.appearance.footer.cta.text }}</p>{{/ if }}
+        {{# if nav.appearance.footer.cta.title }}<h2 class="text-2xl font-semibold tracking-tight text-[#2b1c14] sm:text-3xl">{{ nav.appearance.footer.cta.title }}</h2>{{/ if }}
+        {{# if nav.appearance.footer.cta.text }}<p class="mt-2 text-base leading-relaxed text-[#2b1c14]">{{ nav.appearance.footer.cta.text }}</p>{{/ if }}
       </div>
       <a href="{{ nav.appearance.footer.cta.url }}"
-         class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full bg-[#F97316] px-6 py-3 text-sm font-semibold text-zinc-950 no-underline transition hover:-translate-y-px hover:bg-orange-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">{{ nav.appearance.footer.cta.label }}</a>
+         class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full bg-[#a8482a] px-6 py-3 text-sm font-semibold text-white no-underline shadow-lg shadow-[#a8482a]/30 transition hover:-translate-y-px hover:bg-[#8f3b21] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2b1c14]">{{ nav.appearance.footer.cta.label }}</a>
     </div>
     {{/ if }}
 
     <div class="grid gap-12 md:grid-cols-2 lg:grid-flow-col lg:auto-cols-fr lg:grid-cols-[1.4fr]">
       <div class="flex flex-col gap-5">
-        <a href="/" class="inline-flex min-h-11 w-fit items-center gap-2.5 rounded-lg text-[1.15rem] font-semibold tracking-tight text-zinc-950 no-underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
-          {{# if nav.appearance.footer.logoOnLight }}<img src="{{ nav.appearance.footer.logoOnLight }}" alt="{{ site.brand.logoText }}" class="block h-8 w-auto max-w-52 object-contain">{{ else }}<img src="{{ site.brand.logoMark }}" alt="" width="28" height="28" class="size-7 rounded-lg"> {{ site.brand.logoText }}{{/ if }}
+        <a href="/" class="inline-flex min-h-11 w-fit items-center gap-2.5 rounded-lg text-[1.15rem] font-semibold tracking-tight text-[#fbf4e6] no-underline transition-colors hover:text-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f0c987]">
+          {{# if nav.appearance.footer.logoOnDark }}<img src="{{ nav.appearance.footer.logoOnDark }}" alt="{{ site.brand.logoText }}" class="block h-8 w-auto max-w-52 object-contain">{{ else }}<img src="{{ site.brand.logoMark }}" alt="" width="28" height="28" class="size-7 rounded-lg"> {{ site.brand.logoText }}{{/ if }}
         </a>
-        {{# if nav.appearance.footer.showTagline }}{{# if site.footerTagline }}<p class="max-w-[36ch] leading-relaxed text-zinc-950">{{ site.footerTagline }}{{# if site.foundedYear }} Since {{ site.foundedYear }}.{{/ if }}</p>{{/ if }}{{/ if }}
+        {{# if nav.appearance.footer.showTagline }}{{# if site.footerTagline }}<p class="max-w-[36ch] leading-relaxed text-[#ecdcc2]">{{ site.footerTagline }}{{# if site.foundedYear }} Since {{ site.foundedYear }}.{{/ if }}</p>{{/ if }}{{/ if }}
         {{# if nav.appearance.footer.showContact }}
         <p class="flex flex-col gap-1">
-          {{# if site.contact.email }}<a href="mailto:{{ site.contact.email }}" class="inline-flex min-h-11 w-fit items-center font-medium text-zinc-950 underline decoration-zinc-950/40 underline-offset-4 transition-colors hover:decoration-zinc-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 wrap-break-word">{{ site.contact.email }}</a>{{/ if }}
-          {{# if site.contact.phone }}<a href="tel:{{ site.contact.phone }}" class="inline-flex min-h-11 w-fit items-center font-medium text-zinc-950 underline decoration-zinc-950/40 underline-offset-4 transition-colors hover:decoration-zinc-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">{{ site.contact.phone }}</a>{{/ if }}
-          {{# if site.contact.whatsappUrl }}<a href="{{ site.contact.whatsappUrl }}" class="inline-flex min-h-11 w-fit items-center font-medium text-zinc-950 underline decoration-zinc-950/40 underline-offset-4 transition-colors hover:decoration-zinc-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">{{ site.contact.whatsapp }}</a>{{/ if }}
+          {{# if site.contact.email }}<a href="mailto:{{ site.contact.email }}" class="inline-flex min-h-11 w-fit items-center font-medium text-[#fbf4e6] underline decoration-[#fbf4e6]/40 underline-offset-4 transition-colors hover:text-[#f0c987] hover:decoration-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f0c987] wrap-break-word">{{ site.contact.email }}</a>{{/ if }}
+          {{# if site.contact.phone }}<a href="tel:{{ site.contact.phone }}" class="inline-flex min-h-11 w-fit items-center font-medium text-[#fbf4e6] underline decoration-[#fbf4e6]/40 underline-offset-4 transition-colors hover:text-[#f0c987] hover:decoration-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f0c987]">{{ site.contact.phone }}</a>{{/ if }}
+          {{# if site.contact.whatsappUrl }}<a href="{{ site.contact.whatsappUrl }}" class="inline-flex min-h-11 w-fit items-center font-medium text-[#fbf4e6] underline decoration-[#fbf4e6]/40 underline-offset-4 transition-colors hover:text-[#f0c987] hover:decoration-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f0c987]">{{ site.contact.whatsapp }}</a>{{/ if }}
         </p>
         {{/ if }}
         {{# if nav.appearance.footer.showSocial }}{{# if nav.social }}
         <ul class="flex flex-wrap gap-2" aria-label="Social media">
           {{# each nav.social }}
           <li><a href="{{ url }}" target="_blank" rel="noopener" aria-label="{{ label }}"
-                 class="inline-flex size-11 items-center justify-center rounded-full bg-zinc-950 text-white no-underline transition hover:-translate-y-px hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"><svg viewBox="0 0 24 24" aria-hidden="true" class="size-4">{{{ svg }}}</svg></a></li>
+                 class="inline-flex size-11 items-center justify-center rounded-full text-[#fbf4e6] ring-1 ring-[#fbf4e6]/30 no-underline transition hover:-translate-y-px hover:text-[#f0c987] hover:ring-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f0c987]"><svg viewBox="0 0 24 24" aria-hidden="true" class="size-4">{{{ svg }}}</svg></a></li>
           {{/ each }}
         </ul>
         {{/ if }}{{/ if }}
@@ -39,20 +39,20 @@
 
       {{# each nav.footer }}
       <div>
-        <h2 class="mb-3 border-b border-zinc-950/25 pb-3 text-xs font-bold uppercase tracking-[0.14em] text-zinc-950">{{ title }}</h2>
+        <h2 class="mb-3 border-b border-[#fbf4e6]/20 pb-3 text-xs font-bold uppercase tracking-[0.14em] text-[#f0c987]">{{ title }}</h2>
         <ul class="grid">
           {{# each links }}
-          <li><a href="{{ url }}"{{# if external }} target="_blank" rel="noopener"{{/ if }} class="inline-flex min-h-11 items-center font-medium text-zinc-950 no-underline decoration-zinc-950 decoration-2 underline-offset-4 transition-transform hover:translate-x-0.5 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">{{ label }}</a></li>
+          <li><a href="{{ url }}"{{# if external }} target="_blank" rel="noopener"{{/ if }} class="inline-flex min-h-11 items-center font-medium text-[#fbf4e6] no-underline decoration-[#f0c987] decoration-2 underline-offset-4 transition hover:translate-x-0.5 hover:text-[#f0c987] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f0c987]">{{ label }}</a></li>
           {{/ each }}
         </ul>
       </div>
       {{/ each }}
     </div>
 
-    <div class="mt-14 flex flex-col gap-4 border-t border-zinc-950/25 pt-6 text-sm sm:flex-row sm:items-center sm:justify-between">
-      <p class="text-zinc-950">© {{ site.year }} {{# if nav.appearance.footer.copyright }}{{ nav.appearance.footer.copyright }}{{ else }}{{ site.name }}. All rights reserved.{{/ if }}</p>
+    <div class="mt-14 flex flex-col gap-4 border-t border-[#fbf4e6]/20 pt-6 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <p class="text-[#ecdcc2]">© {{ site.year }} {{# if nav.appearance.footer.copyright }}{{ nav.appearance.footer.copyright }}{{ else }}{{ site.name }}. All rights reserved.{{/ if }}</p>
       <ul class="flex flex-wrap gap-x-6">
-        {{# each nav.legal }}<li><a href="{{ url }}" class="inline-flex min-h-11 items-center font-medium text-zinc-950 no-underline decoration-zinc-950 decoration-2 underline-offset-4 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">{{ label }}</a></li>{{/ each }}
+        {{# each nav.legal }}<li><a href="{{ url }}" class="inline-flex min-h-11 items-center font-medium text-[#fbf4e6] no-underline decoration-[#f0c987] decoration-2 underline-offset-4 transition-colors hover:text-[#f0c987] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f0c987]">{{ label }}</a></li>{{/ each }}
       </ul>
     </div>
   </div>
