@@ -565,7 +565,13 @@ keep all four in the file.
 
 The model is `TWINSTACK_MODEL` when set (the Twinstack web app passes the account's chosen
 model), otherwise `site.config.json` → `automation.model` (`claude-opus-5-5`); each script
-reads it into `CLAUDE_MODEL`. Every request
+reads it into `CLAUDE_MODEL`. `edit-page.js` also reads `TWINSTACK_FAST_MODEL` (the web app sets
+it to a cheaper `deepseek-*` model its proxy routes): `pageModel` uses it for an edit or a
+generated page under `content/` with no shown images, when there's a design to follow (the page's
+own for an edit, `isDesigned`, or another page's, `styleReference`), and asks `CLAUDE_MODEL` again
+when its request fails, is declined or fails the checks. The proposal's `model` names the one that
+wrote it, and `checks` says so in words. The first design, conversions, the header and footer and
+templates always use `CLAUDE_MODEL`. Every request
 goes through `modelOptions` in `lib/claude-writer.js` (copied into `edit-md.js` and
 `seo.js`, which the web app installs without it): an effort level (`high` for page
 writing, `medium` otherwise) on models that take one,
