@@ -121,10 +121,13 @@ export async function callClaude({ apiKey, model, systemPrompt, userContent, res
  * with the HTTP `status` on it. `messages` replaces the single user turn
  * with a whole conversation (for a follow-up asking Claude to correct its reply).
  * `maxTokens` must leave room for the model's thinking as well as the reply.
+ * `cache` caches the request for 5 minutes: pass it when follow-ups will resend
+ * it (a review or a correction), which then pay a tenth for that part. A
+ * request nothing follows shouldn't, since writing the cache costs 1.25x.
  * The reply is streamed, so a long one never outlasts fetch's 5-minute wait
  * for a response.
  */
-export async function requestClaude({ apiKey, model, systemPrompt, userContent, messages, research, maxTokens = 16000, effort = 'medium' }) {
+export async function requestClaude({ apiKey, model, systemPrompt, userContent, messages, research, maxTokens = 16000, effort = 'medium', cache = false }) {
   const options = modelOptions(model, effort);
   const body = {
     model,
@@ -132,6 +135,7 @@ export async function requestClaude({ apiKey, model, systemPrompt, userContent, 
     system: systemPrompt,
     messages: messages || [{ role: 'user', content: userContent }],
     stream: true,
+    ...(cache && { cache_control: { type: 'ephemeral' } }),
     ...options.body,
   };
   if (research) {

@@ -334,7 +334,9 @@ file. The second request always happens: Claude gets its conversion back with
 the issues found, or with a request to review it against the HTML line by
 line. A third request happens only if issues remain. The attempt with the
 fewest problems, then the least missing content, is kept, with later attempts
-winning ties. Missing content in the kept version becomes warnings, and the
+winning ties. The first request and the reviews are cached (`requestClaude`'s
+`cache`), so each review pays a tenth for the HTML and the earlier replies it
+resends. Missing content in the kept version becomes warnings, and the
 proposal's `"checks"` lists each attempt's result.
 The work log records `page:convert`, the proposal has `"mode": "convert"` and
 `"source"`, and queue entries take `"mode": "convert", "source": "<file.html>"`.
@@ -566,7 +568,7 @@ model), otherwise `site.config.json` → `automation.model` (`claude-opus-5-5`);
 reads it into `CLAUDE_MODEL`. Every request
 goes through `modelOptions` in `lib/claude-writer.js` (copied into `edit-md.js` and
 `seo.js`, which the web app installs without it): an effort level (`high` for page
-writing, `medium` otherwise, `low` for work-log summaries) on models that take one,
+writing, `medium` otherwise) on models that take one,
 and server-side refusal fallbacks (`fallbacks: "default"`) on the 5.x models. These
 models think on every request and the thinking counts toward `max_tokens`, so limits
 leave room for it. `requestClaude` streams the reply, so page writing can use
@@ -744,7 +746,8 @@ Every Claude request (`page:edit`, `page:generate`, `md:edit`,
   indented `  - ` points (each at most 200 characters) saying what the change
   actually did. Entries from before summaries are just the line.
   - **The points:** `summarizeChange` in `knowledge.js` makes them with one
-    small extra Claude request (`low` effort). It sends the request that
+    small extra Claude request, always on `SUMMARY_MODEL` (Haiku 4.5, whatever
+    model wrote the change; the Twinstack web app's credits must price it). It sends the request that
     was made and the part of the file that changed: lines shared at the start
     and end are left out, and each side is capped at 9,000 characters.
   - **Conversions that kept the old page's styles** send the frontmatter

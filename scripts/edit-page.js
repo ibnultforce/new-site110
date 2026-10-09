@@ -1676,11 +1676,11 @@ function userContent(userPrompt, images) {
  * Asks Claude for the new file. If the API rejects a URL image it couldn't
  * fetch, the request is retried once with URL images named but not shown.
  */
-async function askClaude(buildPrompts, images) {
+async function askClaude(buildPrompts, images, { cache = false } = {}) {
   // The prompts describe which images are shown, so they're rebuilt for the retry.
   const call = (list) => {
     const { systemPrompt, userPrompt } = buildPrompts(list);
-    return requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, userContent: userContent(userPrompt, list), maxTokens: MAX_TOKENS, effort: 'high' });
+    return requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, userContent: userContent(userPrompt, list), maxTokens: MAX_TOKENS, effort: 'high', cache });
   };
   try {
     return { ...(await call(images)), images };
@@ -1968,7 +1968,7 @@ async function reviewConversion({ reply, buildPrompts, original, htmlPage, relFi
         : 'Review your conversion against the HTML once more, line by line: every heading, paragraph, list item, table cell, link and image of the page\'s own content must be there, in order, with the original wording, and nothing from the old site\'s header, footer or navigation. Return the complete file, corrected if anything was wrong or unchanged if not, following the same rules. Reply with the file only, starting with its opening "---": no checklist, commentary or notes before or after it.',
     });
     console.log(`  Asking Claude to ${issues.length ? 'fix what the check found' : 'review its conversion'} (attempt ${attempt + 1} of ${MAX_ATTEMPTS})…`);
-    current = await requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, messages, maxTokens: MAX_TOKENS, effort: 'high' });
+    current = await requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, messages, maxTokens: MAX_TOKENS, effort: 'high', cache: true });
     if (current.stopReason === 'refusal') break;
   }
   const warnings = [...best.warnings];
@@ -2174,7 +2174,8 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
   }
 
   console.log(`  Model: ${CLAUDE_MODEL}\n`);
-  const reply = await askClaude(buildPrompts, images);
+  // A conversion is always reviewed, and the review resends this whole request.
+  const reply = await askClaude(buildPrompts, images, { cache: Boolean(convert) });
   if (reply.stopReason === 'refusal') {
     console.error(`  Claude declined this request. Rephrase the ${{ edit: 'instruction', generate: 'draft', convert: 'direction' }[mode]} and try again.\n`);
     return false;
