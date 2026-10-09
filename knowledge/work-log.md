@@ -15,3 +15,10 @@ Written automatically: one line per change Claude made to this site that was kep
   - Changed all footer links, headings, and social icons to use cream (#fbf4e6/#ecdcc2) with golden wheat (#f0c987) hover states and adjusted focus outlines.
   - Modified decorative gradients and dividers to use subtle cream and warm tones at low opacity, and changed logo fallback property from logoOnLight to logoOnDark.
 - 2026-10-09 · page:edit · content/pages/home.md · Change only the story section heading "Small team, slow dough" to "Small team". Leave everything else on the page exactly as it is.
+- 2026-10-09 · page:edit · content/pages/revenue.md · This is a new, empty page. Write it from scratch. A simple demo page titled "Revenue" for Harbour Street Bakery, an independent sourdough bakery and café in a…
+  - Set page description to clarify this is a demo page with placeholder figures.
+  - Added hero section with title, intro text explaining the demo nature, and link to overview below.
+  - Created three revenue category cards (Bread, Pastries, Cakes to order) in responsive grid with placeholder fields for amounts and share percentages.
+  - Added placeholder note section and closing call-to-action, styled throughout with Harbour Street Bakery's colour palette and Fraunces typography.
+- 2026-10-09 · page:edit · content/pages/home.md · Change the hero button text to 'Visit the bakery'
+  - Changed hero button text from "Visit us" to "Visit the bakery"
