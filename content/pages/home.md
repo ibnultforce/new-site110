@@ -120,7 +120,14 @@ description: Under 160 characters, written for search results.
             <svg class="mt-1 size-6 shrink-0 text-[#a8482a]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.500 1.500a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>
             <div>
               <dt class="font-semibold text-[#2b1c14]">Phone</dt>
-              <dd class="mt-1 text-[#5a4638] wrap-break-word">[Add phone number]</dd>
+              <dd class="mt-1 text-[#5a4638] wrap-break-word"><a href="tel:01712345678" class="text-[#5a4638] underline decoration-[#d9a441]/70 decoration-1 underline-offset-4 transition hover:text-[#a8482a] hover:decoration-[#a8482a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a8482a]">01712345678</a></dd>
+            </div>
+          </div>
+          <div class="flex gap-4">
+            <svg class="mt-1 size-6 shrink-0 text-[#a8482a]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="m3.8 7 8.2 5.6L20.2 7"/></svg>
+            <div>
+              <dt class="font-semibold text-[#2b1c14]">Email</dt>
+              <dd class="mt-1 text-[#5a4638] wrap-break-word"><a href="mailto:test@gmail.co" class="text-[#5a4638] underline decoration-[#d9a441]/70 decoration-1 underline-offset-4 transition hover:text-[#a8482a] hover:decoration-[#a8482a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a8482a]">test@gmail.co</a></dd>
             </div>
           </div>
         </dl>
@@ -148,6 +155,78 @@ description: Under 160 characters, written for search results.
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Frequently asked questions -->
+  <section id="faq" class="scroll-mt-8">
+    <div class="mx-auto max-w-7xl px-5 pb-16 sm:px-8 md:pb-24">
+      <div class="max-w-2xl">
+        <h2 class="font-['Fraunces',Georgia,serif] text-3xl font-semibold tracking-tight text-[#2b1c14] sm:text-4xl md:text-5xl">Frequently asked questions</h2>
+        <p class="mt-4 text-lg leading-relaxed text-[#5a4638]">Quick answers about our bakery.</p>
+      </div>
+
+      <div class="mt-12 max-w-3xl space-y-3 sm:space-y-4">
+        <details class="group rounded-2xl bg-white/70 shadow-sm ring-1 ring-[#e6d5b8] transition hover:shadow-md hover:shadow-[#a8482a]/10 open:shadow-md open:shadow-[#a8482a]/10">
+          <summary class="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 rounded-2xl px-5 py-4 font-['Fraunces',Georgia,serif] text-lg font-semibold text-[#2b1c14] transition hover:text-[#a8482a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a8482a] sm:px-7 sm:py-5 sm:text-xl [&::-webkit-details-marker]:hidden">
+            <span>What do you bake?</span>
+            <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#f6dfb0] text-[#8f3b21] transition group-open:rotate-45" aria-hidden="true">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </span>
+          </summary>
+          <div class="px-5 pb-5 sm:px-7 sm:pb-7">
+            <p class="text-base leading-relaxed text-[#5a4638] wrap-break-word">Sourdough loaves baked daily, buttery pastries, and celebration cakes made to order.</p>
+          </div>
+        </details>
+
+        <details class="group rounded-2xl bg-white/70 shadow-sm ring-1 ring-[#e6d5b8] transition hover:shadow-md hover:shadow-[#a8482a]/10 open:shadow-md open:shadow-[#a8482a]/10">
+          <summary class="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 rounded-2xl px-5 py-4 font-['Fraunces',Georgia,serif] text-lg font-semibold text-[#2b1c14] transition hover:text-[#a8482a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a8482a] sm:px-7 sm:py-5 sm:text-xl [&::-webkit-details-marker]:hidden">
+            <span>Why is your sourdough slow-fermented?</span>
+            <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#f6dfb0] text-[#8f3b21] transition group-open:rotate-45" aria-hidden="true">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </span>
+          </summary>
+          <div class="px-5 pb-5 sm:px-7 sm:pb-7">
+            <p class="text-base leading-relaxed text-[#5a4638] wrap-break-word">Time is what gives bread its flavour, its crust and its character, so we let our dough rise slowly and by hand, in small batches.</p>
+          </div>
+        </details>
+
+        <details class="group rounded-2xl bg-white/70 shadow-sm ring-1 ring-[#e6d5b8] transition hover:shadow-md hover:shadow-[#a8482a]/10 open:shadow-md open:shadow-[#a8482a]/10">
+          <summary class="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 rounded-2xl px-5 py-4 font-['Fraunces',Georgia,serif] text-lg font-semibold text-[#2b1c14] transition hover:text-[#a8482a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a8482a] sm:px-7 sm:py-5 sm:text-xl [&::-webkit-details-marker]:hidden">
+            <span>Do you have a café?</span>
+            <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#f6dfb0] text-[#8f3b21] transition group-open:rotate-45" aria-hidden="true">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </span>
+          </summary>
+          <div class="px-5 pb-5 sm:px-7 sm:pb-7">
+            <p class="text-base leading-relaxed text-[#5a4638] wrap-break-word">Yes. Come in for a loaf and stay for a coffee. Our pastries are best eaten warm alongside a good cup of coffee.</p>
+          </div>
+        </details>
+
+        <details class="group rounded-2xl bg-white/70 shadow-sm ring-1 ring-[#e6d5b8] transition hover:shadow-md hover:shadow-[#a8482a]/10 open:shadow-md open:shadow-[#a8482a]/10">
+          <summary class="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 rounded-2xl px-5 py-4 font-['Fraunces',Georgia,serif] text-lg font-semibold text-[#2b1c14] transition hover:text-[#a8482a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a8482a] sm:px-7 sm:py-5 sm:text-xl [&::-webkit-details-marker]:hidden">
+            <span>Can I order a celebration cake?</span>
+            <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#f6dfb0] text-[#8f3b21] transition group-open:rotate-45" aria-hidden="true">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </span>
+          </summary>
+          <div class="px-5 pb-5 sm:px-7 sm:pb-7">
+            <p class="text-base leading-relaxed text-[#5a4638] wrap-break-word">Yes. Our cakes are made to order for birthdays, weddings or just because. Get in touch, tell us what you are marking and we will talk it through with you.</p>
+          </div>
+        </details>
+
+        <details class="group rounded-2xl bg-white/70 shadow-sm ring-1 ring-[#e6d5b8] transition hover:shadow-md hover:shadow-[#a8482a]/10 open:shadow-md open:shadow-[#a8482a]/10">
+          <summary class="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 rounded-2xl px-5 py-4 font-['Fraunces',Georgia,serif] text-lg font-semibold text-[#2b1c14] transition hover:text-[#a8482a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a8482a] sm:px-7 sm:py-5 sm:text-xl [&::-webkit-details-marker]:hidden">
+            <span>How can I get in touch?</span>
+            <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#f6dfb0] text-[#8f3b21] transition group-open:rotate-45" aria-hidden="true">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </span>
+          </summary>
+          <div class="px-5 pb-5 sm:px-7 sm:pb-7">
+            <p class="text-base leading-relaxed text-[#5a4638] wrap-break-word">Call us on <a href="tel:01712345678" class="font-medium text-[#8f3b21] underline decoration-[#d9a441]/70 decoration-1 underline-offset-4 transition hover:text-[#a8482a] hover:decoration-[#a8482a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a8482a]">01712345678</a>, email <a href="mailto:test@gmail.co" class="font-medium text-[#8f3b21] underline decoration-[#d9a441]/70 decoration-1 underline-offset-4 transition hover:text-[#a8482a] hover:decoration-[#a8482a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a8482a]">test@gmail.co</a>, or use the <a href="/contact.html" class="font-medium text-[#8f3b21] underline decoration-[#d9a441]/70 decoration-1 underline-offset-4 transition hover:text-[#a8482a] hover:decoration-[#a8482a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a8482a]">contact page</a>.</p>
+          </div>
+        </details>
       </div>
     </div>
   </section>

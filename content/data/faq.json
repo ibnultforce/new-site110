@@ -1,4 +1,30 @@
 {
   "_comment": "Site-wide FAQ. Pages can render all of it, or filter by topic in their own frontmatter.",
-  "items": []
+  "items": [
+    {
+      "topic": "general",
+      "question": "What do you bake?",
+      "answer": "Sourdough loaves baked daily, buttery pastries, and celebration cakes made to order."
+    },
+    {
+      "topic": "general",
+      "question": "Why is your sourdough slow-fermented?",
+      "answer": "Time is what gives bread its flavour, its crust and its character, so we let our dough rise slowly and by hand, in small batches."
+    },
+    {
+      "topic": "general",
+      "question": "Do you have a café?",
+      "answer": "Yes. Come in for a loaf and stay for a coffee. Our pastries are best eaten warm alongside a good cup of coffee."
+    },
+    {
+      "topic": "cakes",
+      "question": "Can I order a celebration cake?",
+      "answer": "Yes. Our cakes are made to order for birthdays, weddings or just because. Get in touch, tell us what you are marking and we will talk it through with you."
+    },
+    {
+      "topic": "contact",
+      "question": "How can I get in touch?",
+      "answer": "Call us on 01712345678, email test@gmail.co, or use the contact page on this site."
+    }
+  ]
 }

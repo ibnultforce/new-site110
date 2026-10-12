@@ -34,3 +34,16 @@ Written automatically: one line per change Claude made to this site that was kep
   - Added a fonts field loading Plus Jakarta Sans, Inter and JetBrains Mono from one Google Fonts stylesheet; kept the scroll-in effect.
   - Set stylesheet to /assets/css/imported/2026-10-12-saiful.css, holding the imported page's 265 CSS rules scoped to this page.
   - Rewrote title, description, metaTitle and metaDescription for "Who Sees What", and cut scripts down to a single inline-1.js entry with new scriptRemoved selectors.
+- 2026-10-12 · page:edit · content/pages/about.md · Write the About page from scratch for Harbour Street Bakery, an independent sourdough bakery and café in a small coastal town. Match the homepage look exactly:…
+  - Replaced the placeholder hero with a full About page: hero, Our story, What we care about, Meet the bakers and a closing brown call-to-action.
+  - Set the description, metaTitle, metaDescription and focusKeyword fields for Harbour Street Bakery; title and slug left as they were.
+  - Added the Fraunces font links and a cream #fbf4e6 wrapper with blurred circle shapes, white/70 ring cards, an alternating #f3e6cc story band and terracotta buttons linking to /contact.html.
+  - Left dashed placeholders for [Add year founded], [Add who the bakers are and how they began] and [Add photo of the team].
+- 2026-10-12 · page:edit · content/pages/home.md · Change only the contact details in the 'Opening hours and finding us' section. Replace the placeholder [Add phone number] with 01712345678, as a tappable tel:…
+- 2026-10-12 · assistant:update-site-details · site.config.json · Saves your email address in the site details.
+- 2026-10-12 · assistant:update-site-details · content/data/faq.json · Adds five questions and answers to your FAQ, taken from what your pages already say.
+- 2026-10-12 · page:edit · content/pages/home.md · Add a new "Frequently asked questions" section to the homepage, placed between the "Opening hours and finding us" section and the closing "Order a celebration…
+  - Added a "Frequently asked questions" section between the "Opening hours and finding us" section and the closing "Order a celebration cake" call to action.
+  - Section opens with a Fraunces h2 "Frequently asked questions" and the intro line "Quick answers about our bakery."
+  - Added five expandable details/summary items with the supplied questions and answers, styled as white/70 cards with ring #e6d5b8 and terracotta accents.
+  - The final answer links 01712345678 (tel:), test@gmail.co (mailto:) and the contact page (/contact.html); the closing call to action is unchanged.
