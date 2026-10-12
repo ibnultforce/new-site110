@@ -570,14 +570,21 @@ to a cheaper `deepseek-*` model its proxy routes), and every use of it falls bac
 `CLAUDE_MODEL` when its request fails, is declined or its result fails the checks:
 - `edit-page.js` (`pageModel`): an edit or a generated page under `content/`, when there's a
   design to follow (the page's own for an edit, `isDesigned`, or another page's,
-  `styleReference`). Photos from the site's files go with it (it reads images); a photo by web
+  `styleReference`). A `--markdown` conversion too (the HTML page holds all its content):
+  its review and correction use the same model, and `CLAUDE_MODEL` also takes over if its best
+  attempt leaves out any of the page's content. Photos from the site's files go with it (it reads images); a photo by web
   address keeps the request on `CLAUDE_MODEL`, which fetches it.
+- `edit-page.js` (`chromeModel`): every `--chrome` request when there's a design to follow (a
+  header and footer Claude already designed, `data-designed="claude"`, or a designed page,
+  `styleReference`); only a site with no design yet stays on `CLAUDE_MODEL`.
 - `edit-page.js` (`writeFrontmatter`): a `--keep-styles` conversion's title and description (the
   body is copied by code either way).
 - `scaffold-schedule.js` (`jobModel`): a scheduled page on a site with a designed page, when the
   job needs no web research (the cheaper model can't search).
 - `edit-md.js`: markdown file edits.
-- `seo.js --claude` (`writeSearchText` in `lib/seo.js`) and new pages' search text (below).
+- `seo.js --claude` (`writeSearchText` in `lib/seo.js`) and new pages' search text (below). Its
+  best attempt is kept even with issues left (shown as warnings): `CLAUDE_MODEL` is asked only when
+  it errors, is declined or brings back no title and description.
 - The work-log summary (`summarizeChange`, falling back to `SUMMARY_MODEL`).
 
 The proposal's `model` names the model that wrote it, and `checks` says so in plain words. The

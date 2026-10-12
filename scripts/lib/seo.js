@@ -430,10 +430,12 @@ export async function searchTextAttempts({ request, model, systemPrompt, userPro
 }
 
 /**
- * The search text from the cheaper `fastModel` when there is one, else (or when its best attempt
- * still has issues, errors or is declined) from `model`. Resolves to searchTextAttempts' result
- * plus the `model` that wrote it, and `fellBack`: in plain words, why the cheaper model's wasn't
- * used ("failed", "still had issues"), or ''. The error itself only goes to `log`.
+ * The search text from the cheaper `fastModel` when there is one, else (or when it errors, is
+ * declined or brings back no title and description) from `model`. Search text is short work, so
+ * the cheaper model's best attempt is kept even with issues left, which the callers show as
+ * warnings. Resolves to searchTextAttempts' result plus the `model` that wrote it, and `fellBack`:
+ * in plain words, why the cheaper model's wasn't used ("failed", "had no title or description"),
+ * or ''. The error itself only goes to `log`.
  */
 export async function writeSearchText({ fastModel = '', model, log = () => {}, ...options }) {
   let fellBack = '';
@@ -441,8 +443,8 @@ export async function writeSearchText({ fastModel = '', model, log = () => {}, .
     let detail = '';
     try {
       const result = await searchTextAttempts({ ...options, model: fastModel, log });
-      if (result.fields && !result.issues.length) return { ...result, model: fastModel, fellBack };
-      fellBack = 'still had issues';
+      if (result.fields?.metaTitle && result.fields?.metaDescription) return { ...result, model: fastModel, fellBack };
+      fellBack = 'had no title or description';
     } catch (error) {
       fellBack = 'failed';
       detail = ` (${error.message.slice(0, 160)})`;

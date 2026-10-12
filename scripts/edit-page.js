@@ -98,7 +98,7 @@ import { PAGE_MAX_TOKENS, bannedPhraseWarnings, requestClaude, resolveImages, st
 import { knowledgePrompt, recordWork, summarizeChange } from './lib/knowledge.js';
 import { BLANK_LAYOUT_RULES, DESIGN_RULES, isDesigned, layoutShowsTitle, styleReference } from './lib/design-rules.js';
 import { addSearchText } from './lib/search-text.js';
-import { CHROME_RULES, COPIED_MARK, FOOTER_FILE, HEADER_FILE, chromeChecks, chromeData, readChromeReply } from './lib/chrome.js';
+import { CHROME_RULES, COPIED_MARK, DESIGNED_MARK, FOOTER_FILE, HEADER_FILE, chromeChecks, chromeData, readChromeReply } from './lib/chrome.js';
 import {
   MAX_CLEAN_CHARS,
   asRawBlock,
@@ -1711,14 +1711,16 @@ const SEARCH_FIELD_LABELS = { metaTitle: 'search title', metaDescription: 'searc
  * generated page under content/, when there's a design for it to follow: another designed page
  * (styleReference), or for an edit the page's own design. It sees photos from the site's own files
  * (sent with the request); a photo by web address would have to be fetched, which only
- * CLAUDE_MODEL does. The site's first design, conversions and templates stay with CLAUDE_MODEL,
- * which also takes over when FAST_MODEL's result fails the checks.
+ * CLAUDE_MODEL does. A markdown conversion goes to FAST_MODEL too, since the HTML page holds all its
+ * content; CLAUDE_MODEL takes over if it leaves any out. The site's first design and templates stay
+ * with CLAUDE_MODEL, which also takes over when FAST_MODEL's result fails the checks.
  */
 function pageModel(relFile, mode, images, original) {
   if (!FAST_MODEL || FAST_MODEL === CLAUDE_MODEL) return CLAUDE_MODEL;
-  if (mode !== 'edit' && mode !== 'generate') return CLAUDE_MODEL;
   if (!relFile.startsWith('content/') || !relFile.endsWith('.md')) return CLAUDE_MODEL;
   if (images.some((image) => image.block && image.block.source.type !== 'base64')) return CLAUDE_MODEL;
+  // A conversion follows the HTML page it's given: its content and structure are all there.
+  if (mode === 'convert') return FAST_MODEL;
   if (mode === 'edit' && isDesigned(parseFrontmatter(original).body)) return FAST_MODEL;
   return styleReference(relFile) ? FAST_MODEL : CLAUDE_MODEL;
 }
@@ -1985,7 +1987,7 @@ function missingContent(page, converted) {
  * attempt if issues remain. The best attempt is kept: fewest problems, then
  * least missing content, later attempts winning ties.
  */
-async function reviewConversion({ reply, buildPrompts, original, htmlPage, relFile }) {
+async function reviewConversion({ reply, buildPrompts, original, htmlPage, relFile, model = CLAUDE_MODEL }) {
   const { systemPrompt, userPrompt } = buildPrompts(reply.images);
   const messages = [{ role: 'user', content: userContent(userPrompt, reply.images) }];
   const checks = [];
@@ -2019,14 +2021,21 @@ async function reviewConversion({ reply, buildPrompts, original, htmlPage, relFi
         : 'Review your conversion against the HTML once more, line by line: every heading, paragraph, list item, table cell, link and image of the page\'s own content must be there, in order, with the original wording, and nothing from the old site\'s header, footer or navigation. Return the complete file, corrected if anything was wrong or unchanged if not, following the same rules. Reply with the file only, starting with its opening "---": no checklist, commentary or notes before or after it.',
     });
     console.log(`  Asking Claude to ${issues.length ? 'fix what the check found' : 'review its conversion'} (attempt ${attempt + 1} of ${MAX_ATTEMPTS})…`);
-    current = await requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, messages, maxTokens: MAX_TOKENS, effort: 'high', cache: true });
+    try {
+      current = await requestClaude({ apiKey, model, systemPrompt, messages, maxTokens: MAX_TOKENS, effort: 'high', cache: true });
+    } catch (error) {
+      // 402: the account's Claude credits ran out (the Twinstack web app's proxy); keep the best attempt.
+      if (error.status !== 402) throw error;
+      console.log('  ! No Claude credits left for another attempt, so the best one so far is kept.');
+      break;
+    }
     if (current.stopReason === 'refusal') break;
   }
   const warnings = [...best.warnings];
   for (const t of best.missing.slice(0, 10)) warnings.unshift(`possibly missing from the page: "${t}"`);
   if (best.missing.length > 10) warnings.unshift(`${best.missing.length - 10} more pieces of the HTML's content may be missing`);
   checks.push(`kept attempt ${best.attempt} of ${checks.length}`);
-  return { raw: best.raw, problems: best.problems, warnings, checks };
+  return { raw: best.raw, problems: best.problems, warnings, checks, missing: best.missing };
 }
 
 const MODE_LABELS = {
@@ -2265,13 +2274,15 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     let checks = [];
     let problems;
     let warnings;
+    // Pieces of the HTML page's content a conversion left out.
+    let missing = [];
     // Data files a multi-file page edit changes, written with the page.
     let extraFiles = [];
     if (multi) {
       ({ raw, files: extraFiles, problems, warnings } = readPageEditReply(reply.text, relFile, original, sources));
       if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the files are incomplete`);
     } else if (convert) {
-      ({ raw, problems, warnings, checks } = await reviewConversion({ reply, buildPrompts, original: base, htmlPage, relFile }));
+      ({ raw, problems, warnings, checks, missing } = await reviewConversion({ reply, buildPrompts, original: base, htmlPage, relFile, model: useModel }));
       if (dropped.length) warnings.push(`replaced the old page's content: its body and ${dropped.join(', ')}`);
     } else {
       const checked = generate ? generateChecks(original, raw, reply.images, relFile) : editChecks(original, raw, isContent);
@@ -2279,7 +2290,7 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
       ({ warnings } = checked);
       if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the file is incomplete`);
     }
-    return { reply, raw, checks, problems, warnings, extraFiles };
+    return { reply, raw, checks, problems, warnings, extraFiles, missing };
   };
 
   // Routine work on a site with a design goes to the cheaper model first; whatever it gets wrong
@@ -2294,14 +2305,24 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     if (model === CLAUDE_MODEL) throw error;
     console.log(`  ! ${model} failed: ${error.message.slice(0, 200)}`);
   }
-  if (model !== CLAUDE_MODEL && (!result || result.reply.stopReason === 'refusal' || result.problems.length)) {
+  // A conversion must also bring over every piece of the page's content.
+  if (model !== CLAUDE_MODEL && (!result || result.reply.stopReason === 'refusal' || result.problems.length || result.missing?.length)) {
     for (const problem of result?.problems ?? []) console.log(`  ! ${model}: ${problem}`);
-    fellBack = !result ? 'failed' : result.reply.stopReason === 'refusal' ? 'was declined' : "didn't pass the checks";
+    if (result?.missing?.length) console.log(`  ! ${model}: ${result.missing.length} piece${result.missing.length === 1 ? '' : 's'} of the page's content missing`);
+    fellBack = !result ? 'failed' : result.reply.stopReason === 'refusal' ? 'was declined' : result.problems.length ? "didn't pass the checks" : 'left out some of the content';
     console.log(`  Asking ${CLAUDE_MODEL} instead…\n`);
     const cheap = model;
-    model = CLAUDE_MODEL;
-    result = await attempt(model);
-    fellBack = `${cheap}'s version ${fellBack}, so ${model} wrote this instead`;
+    try {
+      result = await attempt(CLAUDE_MODEL);
+      model = CLAUDE_MODEL;
+      fellBack = `${cheap}'s version ${fellBack}, so ${model} wrote this instead`;
+    } catch (error) {
+      // 402: the account's Claude credits ran out (the Twinstack web app's proxy); keep what the
+      // cheaper model wrote, problems and all, when it wrote anything.
+      if (error.status !== 402 || !result) throw error;
+      console.log(`  ! No Claude credits left for ${CLAUDE_MODEL}, so ${cheap}'s version is kept.\n`);
+      fellBack = `${cheap}'s version ${fellBack}, and no Claude credits were left to ask ${CLAUDE_MODEL}`;
+    }
   }
   const { reply } = result;
   if (reply.stopReason === 'refusal') {
@@ -2403,6 +2424,18 @@ ${instruction ? `Direction: ${instruction}` : 'Design the header and footer for 
   return { systemPrompt, userPrompt };
 }
 
+/**
+ * The model for a header and footer request. They're small, so FAST_MODEL does them whenever there's
+ * a design to follow: a header and footer Claude already designed (both carry DESIGNED_MARK) or a
+ * designed page (styleReference). The heavy case, a site with no design yet whose look this sets,
+ * stays with CLAUDE_MODEL, which also takes over when FAST_MODEL's result fails the checks.
+ */
+function chromeModel(current) {
+  if (!FAST_MODEL || FAST_MODEL === CLAUDE_MODEL) return CLAUDE_MODEL;
+  if (current.header.includes(DESIGNED_MARK) && current.footer.includes(DESIGNED_MARK)) return FAST_MODEL;
+  return styleReference() ? FAST_MODEL : CLAUDE_MODEL;
+}
+
 async function applyChrome(instruction) {
   console.log(`  Files: ${HEADER_FILE}, ${FOOTER_FILE}`);
   console.log(`  Mode: ${MODE_LABELS.chrome}`);
@@ -2417,15 +2450,46 @@ async function applyChrome(instruction) {
     return false;
   }
 
-  console.log(`  Model: ${CLAUDE_MODEL}\n`);
-  const reply = await requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, userContent: userPrompt, maxTokens: MAX_TOKENS, effort: 'high' });
+  // One request and the checks on its reply.
+  const attempt = async (useModel) => {
+    const reply = await requestClaude({ apiKey, model: useModel, systemPrompt, userContent: userPrompt, maxTokens: MAX_TOKENS, effort: 'high' });
+    if (reply.stopReason === 'refusal') return { reply, files: {}, problems: [], warnings: [] };
+    const files = readChromeReply(reply.text);
+    const { problems, warnings } = chromeChecks(files, { partialNames: partialNames() });
+    if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the files are incomplete`);
+    return { reply, files, problems, warnings };
+  };
+
+  // Header and footer work goes to the cheaper model first (chromeModel), as routine page work
+  // does (pageModel); whatever it gets wrong is asked again of CLAUDE_MODEL.
+  let model = chromeModel(current);
+  console.log(`  Model: ${model}${model === CLAUDE_MODEL ? '' : ` (following the site's design; ${CLAUDE_MODEL} takes over if its result fails the checks)`}\n`);
+  let result = null;
+  try {
+    result = await attempt(model);
+  } catch (error) {
+    if (model === CLAUDE_MODEL) throw error;
+    console.log(`  ! ${model} failed: ${error.message.slice(0, 200)}`);
+  }
+  if (model !== CLAUDE_MODEL && (!result || result.reply.stopReason === 'refusal' || result.problems.length)) {
+    for (const problem of result?.problems ?? []) console.log(`  ! ${model}: ${problem}`);
+    console.log(`  Asking ${CLAUDE_MODEL} instead…\n`);
+    const cheap = model;
+    try {
+      result = await attempt(CLAUDE_MODEL);
+      model = CLAUDE_MODEL;
+    } catch (error) {
+      // 402: the account's Claude credits ran out (the Twinstack web app's proxy); keep what the
+      // cheaper model wrote, problems and all, when it wrote anything.
+      if (error.status !== 402 || !result || result.reply.stopReason === 'refusal') throw error;
+      console.log(`  ! No Claude credits left for ${CLAUDE_MODEL}, so ${cheap}'s version is kept.\n`);
+    }
+  }
+  const { reply, files, problems, warnings } = result;
   if (reply.stopReason === 'refusal') {
     console.error('  Claude declined this request. Rephrase the direction and try again.\n');
     return false;
   }
-  const files = readChromeReply(reply.text);
-  const { problems, warnings } = chromeChecks(files, { partialNames: partialNames() });
-  if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the files are incomplete`);
   const withNewline = (text) => (text.endsWith('\n') ? text : `${text}\n`);
   const header = withNewline(files[HEADER_FILE] ?? '');
   const footer = withNewline(files[FOOTER_FILE] ?? '');
@@ -2439,7 +2503,7 @@ async function applyChrome(instruction) {
     if (warnings.length) console.log(`\n  warning: ${warnings.join('\n  warning: ')}`);
     if (proposalOut) {
       const summary = await summaryFor({ mode: 'chrome', relFile: HEADER_FILE, instruction: logInstruction, before: pair(current.header, current.footer), after: pair(header, footer) });
-      writeProposal({ relFile: HEADER_FILE, mode: 'chrome', instruction, images: [], raw: header, problems, warnings, files: [{ file: FOOTER_FILE, content: footer }], summary });
+      writeProposal({ relFile: HEADER_FILE, mode: 'chrome', instruction, images: [], raw: header, problems, warnings, files: [{ file: FOOTER_FILE, content: footer }], summary, model });
     }
     return false;
   }

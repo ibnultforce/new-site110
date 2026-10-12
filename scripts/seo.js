@@ -496,7 +496,7 @@ async function runClaude(target, direction) {
     console.error('\n  ANTHROPIC_API_KEY is not set. Add it to .env or your environment.\n');
     return 1;
   }
-  console.log(`  Model: ${FAST_MODEL && FAST_MODEL !== CLAUDE_MODEL ? `${FAST_MODEL}, or ${CLAUDE_MODEL} if its result still has issues` : CLAUDE_MODEL}`);
+  console.log(`  Model: ${FAST_MODEL && FAST_MODEL !== CLAUDE_MODEL ? `${FAST_MODEL}, or ${CLAUDE_MODEL} if it fails or writes no title and description` : CLAUDE_MODEL}`);
   if (target) {
     const { code } = await claudeFor(target, direction, { single: true });
     console.log('');
