@@ -47,3 +47,13 @@ Written automatically: one line per change Claude made to this site that was kep
   - Section opens with a Fraunces h2 "Frequently asked questions" and the intro line "Quick answers about our bakery."
   - Added five expandable details/summary items with the supplied questions and answers, styled as white/70 cards with ring #e6d5b8 and terracotta accents.
   - The final answer links 01712345678 (tel:), test@gmail.co (mailto:) and the contact page (/contact.html); the closing call to action is unchanged.
+- 2026-10-12 · page:edit · content/pages/contact.md · Remove only the "Reach us directly" box (the rounded card on the right showing the email address and any other direct contact links). Change nothing else. Sinc…
+  - Removed the "Reach us directly" card on the right, including the email link, WhatsApp link, booking button and response-time line.
+  - Replaced the two-column grid with a single column (max-w-3xl) so the remaining heading and prose fill the section.
+  - Added metaTitle, metaDescription and focusKeyword frontmatter fields for the contact page.
+- 2026-10-12 · assistant:update-site-details · site.config.json · Added Instagram and Facebook links
+- 2026-10-12 · page:edit · content/pages/privacy.md · Write the Privacy page from scratch for Harbour Street Bakery, an independent sourdough bakery and café in a small coastal town. Replace the blank template. Ke…
+  - Set metaTitle, metaDescription, focusKeyword frontmatter fields and replaced blank template with complete Privacy page.
+  - Added Fraunces Google Font link and styled entire page with cream background, dark brown headings, terracotta accents and golden details matching homepage design.
+  - Created hero section with intro text and placeholder for last-updated date, plus four content sections covering what information is collected, how it is used, how it is kept safe, user choices and co…
+  - Built responsive grid layouts with white/70 rounded cards, included contact links (phone tel: link and email mailto: link) and deep brown call-to-action button linking to /contact.html.
