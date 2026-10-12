@@ -29,3 +29,8 @@ Written automatically: one line per change Claude made to this site that was kep
   - Removed the skip link, navigation and footer from the imported HTML.
   - Added the stylesheet field pointing to assets/css/imported/2026-10-12-saiful.css, scoping the imported CSS to this page.
   - Rewrote frontmatter: set title, description, metaTitle, metaDescription, focusKeyword, hideCta and the imported script list; dropped relatedProduct and excerpt.
+- 2026-10-12 · page:convert · content/blog/2026-10-12-saiful.md · converted who-sees-what.html into the page, keeping its styles
+  - Replaced the page body with the who-sees-what.html markup, with its header and footer removed.
+  - Added a fonts field loading Plus Jakarta Sans, Inter and JetBrains Mono from one Google Fonts stylesheet; kept the scroll-in effect.
+  - Set stylesheet to /assets/css/imported/2026-10-12-saiful.css, holding the imported page's 265 CSS rules scoped to this page.
+  - Rewrote title, description, metaTitle and metaDescription for "Who Sees What", and cut scripts down to a single inline-1.js entry with new scriptRemoved selectors.

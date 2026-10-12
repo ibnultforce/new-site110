@@ -1,23 +1,8 @@
-      // GTM deferred — loads after page is interactive to save ~62KB on initial load
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      // Load GTM on first user interaction (fallback 12s) — keeps it out of the
-      // initial-load critical window; real users still get full analytics.
-      var _gtmLoaded = false;
-      function loadGTM() {
-        if (_gtmLoaded) return; _gtmLoaded = true;
-        ['pointerdown','keydown','touchstart','scroll'].forEach(function(ev){
-          window.removeEventListener(ev, loadGTM, {passive:true});
-        });
-        var s = document.createElement('script');
-        s.async = true;
-        s.src = 'https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX';
-        document.head.appendChild(s);
-        gtag('js', new Date());
-        gtag('config', 'G-XXXXXXXXXX');
-      }
-      ['pointerdown','keydown','touchstart','scroll'].forEach(function(ev){
-        window.addEventListener(ev, loadGTM, {passive:true, once:true});
-      });
-      setTimeout(loadGTM, 12000);
-    
+document.documentElement.className+=' js';
+(function(){var n=document.getElementById('nav'),t=0;
+function u(){n.classList.toggle('docked',(window.scrollY||document.documentElement.scrollTop)>26);t=0}
+window.addEventListener('scroll',function(){if(!t){requestAnimationFrame(u);t=1}},{passive:true});u();
+if('IntersectionObserver' in window){var o=new IntersectionObserver(function(e){e.forEach(function(x){
+if(x.isIntersecting){x.target.classList.add('in');o.unobserve(x.target)}})},{rootMargin:'0px 0px -8% 0px',threshold:.06});
+var a=document.querySelectorAll('.rv');for(var i=0;i<a.length;i++){a[i].style.transitionDelay=(i%3)*70+'ms';o.observe(a[i])}}
+else{var b=document.querySelectorAll('.rv');for(var j=0;j<b.length;j++)b[j].classList.add('in')}})();
