@@ -574,6 +574,11 @@ to a cheaper `deepseek-*` model its proxy routes), and every use of it falls bac
   its review and correction use the same model, and `CLAUDE_MODEL` also takes over if its best
   attempt leaves out any of the page's content. Photos from the site's files go with it (it reads images); a photo by web
   address keeps the request on `CLAUDE_MODEL`, which fetches it.
+- `TWINSTACK_TASK_SIZE` (the web app measures each page edit, generated page and header and footer
+  request from its instruction: `small`, `standard` or `complex`) comes first in both: `complex`
+  stays on `CLAUDE_MODEL`, and a `small` edit (wording, facts, removals, a one-property tweak) goes
+  to `TWINSTACK_FAST_MODEL` even on a page with no design yet. Unset or `standard`, the rules below
+  decide. The web app detects support by the literal `TWINSTACK_TASK_SIZE` in `edit-page.js`.
 - `edit-page.js` (`chromeModel`): every `--chrome` request when there's a design to follow (a
   header and footer Claude already designed, `data-designed="claude"`, or a designed page,
   `styleReference`); only a site with no design yet stays on `CLAUDE_MODEL`.

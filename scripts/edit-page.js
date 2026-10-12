@@ -168,6 +168,11 @@ const CLAUDE_MODEL = process.env.TWINSTACK_MODEL || site.automation.model;
 // A cheaper model for routine page work, set by the Twinstack web app when its proxy can route it
 // (a deepseek-* id). pageModel decides when it's used; CLAUDE_MODEL takes over if it fails.
 const FAST_MODEL = process.env.TWINSTACK_FAST_MODEL || '';
+// How big the request is, measured by the Twinstack web app from its instruction (its
+// server/src/task-size.js): `complex` (interactive, animated, a redesign, a layout fix) always goes
+// to CLAUDE_MODEL, `small` (wording, facts, removals, a one-property tweak) may go to FAST_MODEL
+// even without a design to follow. Unset or `standard`, pageModel's own rules decide.
+const TASK_SIZE = ['small', 'standard', 'complex'].includes(process.env.TWINSTACK_TASK_SIZE) ? process.env.TWINSTACK_TASK_SIZE : '';
 const apiKey = process.env.ANTHROPIC_API_KEY;
 
 /* ------------------------------------------------------------------ queue */
@@ -1714,6 +1719,8 @@ const SEARCH_FIELD_LABELS = { metaTitle: 'search title', metaDescription: 'searc
  * CLAUDE_MODEL does. A markdown conversion goes to FAST_MODEL too, since the HTML page holds all its
  * content; CLAUDE_MODEL takes over if it leaves any out. The site's first design and templates stay
  * with CLAUDE_MODEL, which also takes over when FAST_MODEL's result fails the checks.
+ * TASK_SIZE comes first: complex work is CLAUDE_MODEL's, and a small edit is FAST_MODEL's even on
+ * a page with no design yet (it changes words, not the look).
  */
 function pageModel(relFile, mode, images, original) {
   if (!FAST_MODEL || FAST_MODEL === CLAUDE_MODEL) return CLAUDE_MODEL;
@@ -1721,8 +1728,17 @@ function pageModel(relFile, mode, images, original) {
   if (images.some((image) => image.block && image.block.source.type !== 'base64')) return CLAUDE_MODEL;
   // A conversion follows the HTML page it's given: its content and structure are all there.
   if (mode === 'convert') return FAST_MODEL;
+  if (TASK_SIZE === 'complex') return CLAUDE_MODEL;
+  if (mode === 'edit' && TASK_SIZE === 'small') return FAST_MODEL;
   if (mode === 'edit' && isDesigned(parseFrontmatter(original).body)) return FAST_MODEL;
   return styleReference(relFile) ? FAST_MODEL : CLAUDE_MODEL;
+}
+
+/** Why the request went to `model`, for the log line after "Model:". */
+function modelNote(model) {
+  if (model === CLAUDE_MODEL) return TASK_SIZE === 'complex' && FAST_MODEL ? ' (a complex change)' : '';
+  const why = TASK_SIZE === 'small' ? 'a small change' : "following the site's design";
+  return ` (${why}; ${CLAUDE_MODEL} takes over if its result fails the checks)`;
 }
 
 /**
@@ -2296,7 +2312,7 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
   // Routine work on a site with a design goes to the cheaper model first; whatever it gets wrong
   // (an error, a refusal, a reply the checks reject) is asked again of CLAUDE_MODEL.
   let model = pageModel(relFile, mode, images, original);
-  console.log(`  Model: ${model}${model === CLAUDE_MODEL ? '' : ` (following the site's design; ${CLAUDE_MODEL} takes over if its result fails the checks)`}\n`);
+  console.log(`  Model: ${model}${modelNote(model)}\n`);
   let result = null;
   let fellBack = '';
   try {
@@ -2428,10 +2444,12 @@ ${instruction ? `Direction: ${instruction}` : 'Design the header and footer for 
  * The model for a header and footer request. They're small, so FAST_MODEL does them whenever there's
  * a design to follow: a header and footer Claude already designed (both carry DESIGNED_MARK) or a
  * designed page (styleReference). The heavy case, a site with no design yet whose look this sets,
- * stays with CLAUDE_MODEL, which also takes over when FAST_MODEL's result fails the checks.
+ * stays with CLAUDE_MODEL, which also takes over when FAST_MODEL's result fails the checks, and so
+ * does a complex direction (TASK_SIZE: a mega menu, an animated menu, a new look).
  */
 function chromeModel(current) {
   if (!FAST_MODEL || FAST_MODEL === CLAUDE_MODEL) return CLAUDE_MODEL;
+  if (TASK_SIZE === 'complex') return CLAUDE_MODEL;
   if (current.header.includes(DESIGNED_MARK) && current.footer.includes(DESIGNED_MARK)) return FAST_MODEL;
   return styleReference() ? FAST_MODEL : CLAUDE_MODEL;
 }
@@ -2463,7 +2481,7 @@ async function applyChrome(instruction) {
   // Header and footer work goes to the cheaper model first (chromeModel), as routine page work
   // does (pageModel); whatever it gets wrong is asked again of CLAUDE_MODEL.
   let model = chromeModel(current);
-  console.log(`  Model: ${model}${model === CLAUDE_MODEL ? '' : ` (following the site's design; ${CLAUDE_MODEL} takes over if its result fails the checks)`}\n`);
+  console.log(`  Model: ${model}${modelNote(model)}\n`);
   let result = null;
   try {
     result = await attempt(model);
