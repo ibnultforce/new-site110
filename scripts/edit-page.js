@@ -97,6 +97,7 @@ import { renderCheck, scriptCheck } from './lib/render-check.js';
 import { PAGE_MAX_TOKENS, bannedPhraseWarnings, requestClaude, resolveImages, stripFence } from './lib/claude-writer.js';
 import { knowledgePrompt, recordWork, summarizeChange } from './lib/knowledge.js';
 import { BLANK_LAYOUT_RULES, DESIGN_RULES, isDesigned, layoutShowsTitle, styleReference } from './lib/design-rules.js';
+import { addSearchText } from './lib/search-text.js';
 import { CHROME_RULES, COPIED_MARK, FOOTER_FILE, HEADER_FILE, chromeChecks, chromeData, readChromeReply } from './lib/chrome.js';
 import {
   MAX_CLEAN_CHARS,
@@ -1676,17 +1677,48 @@ function userContent(userPrompt, images) {
 }
 
 /**
+ * A new page's search text (lib/search-text.js): the page's missing SEO title, description and
+ * focus keyphrase, written by FAST_MODEL (CLAUDE_MODEL if that fails) into `raw`, the page as it's
+ * about to be written. For a page's first real content only. Never fails the change: a problem
+ * becomes a warning. Resolves to { raw, checks, warnings }.
+ */
+async function withSearchText(relFile, raw) {
+  const unchanged = { raw, checks: [], warnings: [] };
+  if (!FAST_MODEL) return unchanged;
+  try {
+    console.log('  Writing the page\'s search text…');
+    const added = await addSearchText({ relFile, content: raw, apiKey, model: CLAUDE_MODEL, fastModel: FAST_MODEL, log: (line) => console.log(`  ${line}`) });
+    if (!added) return unchanged;
+    const set = Object.keys(added.fields);
+    if (!set.length) return unchanged;
+    const check = `Search text added by ${added.model}${added.fellBack ? ` (${FAST_MODEL} ${added.fellBack})` : ''}: ${set.map((field) => SEARCH_FIELD_LABELS[field]).join(', ')}`;
+    console.log(`  ${check}`);
+    return {
+      raw: added.content,
+      checks: [check],
+      warnings: added.issues.length ? [`search text: ${added.issues.join(' ')}`] : [],
+    };
+  } catch (error) {
+    console.log(`  ! The search text couldn't be written: ${error.message.slice(0, 200)}`);
+    return { ...unchanged, warnings: [`the page's search text couldn't be written (${error.message.slice(0, 160)}); add it in the page's search settings`] };
+  }
+}
+
+const SEARCH_FIELD_LABELS = { metaTitle: 'search title', metaDescription: 'search description', focusKeyword: 'focus keyphrase', description: 'page description' };
+
+/**
  * The model for a page request. The cheaper FAST_MODEL does routine page work: an edit or a
- * generated page under content/ with no images to look at, when there's a design for it to follow:
- * another designed page (styleReference), or for an edit the page's own design. The site's first
- * design, images, conversions and templates stay with CLAUDE_MODEL, which also takes over when
- * FAST_MODEL's result fails the checks.
+ * generated page under content/, when there's a design for it to follow: another designed page
+ * (styleReference), or for an edit the page's own design. It sees photos from the site's own files
+ * (sent with the request); a photo by web address would have to be fetched, which only
+ * CLAUDE_MODEL does. The site's first design, conversions and templates stay with CLAUDE_MODEL,
+ * which also takes over when FAST_MODEL's result fails the checks.
  */
 function pageModel(relFile, mode, images, original) {
   if (!FAST_MODEL || FAST_MODEL === CLAUDE_MODEL) return CLAUDE_MODEL;
   if (mode !== 'edit' && mode !== 'generate') return CLAUDE_MODEL;
   if (!relFile.startsWith('content/') || !relFile.endsWith('.md')) return CLAUDE_MODEL;
-  if (images.some((image) => image.block)) return CLAUDE_MODEL;
+  if (images.some((image) => image.block && image.block.source.type !== 'base64')) return CLAUDE_MODEL;
   if (mode === 'edit' && isDesigned(parseFrontmatter(original).body)) return FAST_MODEL;
   return styleReference(relFile) ? FAST_MODEL : CLAUDE_MODEL;
 }
@@ -2036,32 +2068,63 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
     return false;
   }
 
-  console.log(`  Model: ${CLAUDE_MODEL}\n`);
-  // The frontmatter is checked after every reply; Claude gets up to MAX_ATTEMPTS tries to fix what's wrong.
-  const messages = [{ role: 'user', content: userPrompt }];
+  // The body is copied by code; a model only writes the title and description, so the cheaper one
+  // does it first and CLAUDE_MODEL takes over if its frontmatter still has problems.
+  let model = FAST_MODEL && FAST_MODEL !== CLAUDE_MODEL ? FAST_MODEL : CLAUDE_MODEL;
+  console.log(`  Model: ${model}${model === CLAUDE_MODEL ? '' : ` (only writes the title and description; ${CLAUDE_MODEL} takes over if they fail the checks)`}\n`);
   const checks = [];
-  let raw = '';
-  let problems = [];
-  let warnings = [];
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const reply = await requestClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, messages, maxTokens: 8000 });
-    if (reply.stopReason === 'refusal') {
-      console.error('  Claude declined this request. Rephrase the direction and try again.\n');
-      return false;
+  // The frontmatter is checked after every reply; the model gets up to MAX_ATTEMPTS tries to fix what's wrong.
+  const writeFrontmatter = async (useModel) => {
+    const messages = [{ role: 'user', content: userPrompt }];
+    let result = { raw: '', problems: [], warnings: [] };
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const reply = await requestClaude({ apiKey, model: useModel, systemPrompt, messages, maxTokens: 8000 });
+      if (reply.stopReason === 'refusal') return { refused: true };
+      const text = fileFromReply(reply.text);
+      const raw = assembleStyledFile(text, styled);
+      const { problems, warnings } = pageChecks(base, raw, relFile);
+      problems.push(...replacementProblems(raw, styled.html));
+      if (!FRONTMATTER_BLOCK.test(text.trim())) problems.unshift("Claude's reply had no frontmatter block");
+      if (reply.stopReason === 'max_tokens') problems.unshift("Claude's reply was cut off, so the frontmatter is incomplete");
+      result = { raw, problems, warnings };
+      checks.push(`frontmatter${useModel === CLAUDE_MODEL ? '' : ` (${useModel})`}, attempt ${attempt}: ${problems.length ? `${problems.length} problem${problems.length === 1 ? '' : 's'}` : 'passed'}`);
+      console.log(`  ${checks.at(-1)}`);
+      if (!problems.length || attempt === MAX_ATTEMPTS) break;
+      messages.push({ role: 'assistant', content: reply.text }, {
+        role: 'user',
+        content: `That frontmatter has these problems:\n${problems.map((p) => `- ${p}`).join('\n')}\nReturn the corrected frontmatter block only, following the same rules, with no commentary before or after it.`,
+      });
     }
-    const text = fileFromReply(reply.text);
-    raw = assembleStyledFile(text, styled);
-    ({ problems, warnings } = pageChecks(base, raw, relFile));
-    problems.push(...replacementProblems(raw, styled.html));
-    if (!FRONTMATTER_BLOCK.test(text.trim())) problems.unshift("Claude's reply had no frontmatter block");
-    if (reply.stopReason === 'max_tokens') problems.unshift("Claude's reply was cut off, so the frontmatter is incomplete");
-    checks.push(`frontmatter, attempt ${attempt}: ${problems.length ? `${problems.length} problem${problems.length === 1 ? '' : 's'}` : 'passed'}`);
-    console.log(`  ${checks.at(-1)}`);
-    if (!problems.length || attempt === MAX_ATTEMPTS) break;
-    messages.push({ role: 'assistant', content: reply.text }, {
-      role: 'user',
-      content: `That frontmatter has these problems:\n${problems.map((p) => `- ${p}`).join('\n')}\nReturn the corrected frontmatter block only, following the same rules, with no commentary before or after it.`,
-    });
+    return result;
+  };
+  let written = null;
+  try {
+    written = await writeFrontmatter(model);
+  } catch (error) {
+    if (model === CLAUDE_MODEL) throw error;
+    console.log(`  ! ${model} failed: ${error.message.slice(0, 200)}`);
+  }
+  if (model !== CLAUDE_MODEL && (!written || written.refused || written.problems.length)) {
+    const why = !written ? 'failed' : written.refused ? 'was declined' : "didn't pass the checks";
+    console.log(`  Asking ${CLAUDE_MODEL} instead…`);
+    checks.push(`${model}'s title and description ${why}, so ${CLAUDE_MODEL} wrote them instead`);
+    model = CLAUDE_MODEL;
+    written = await writeFrontmatter(model);
+  } else if (model !== CLAUDE_MODEL) {
+    checks.push(`Title and description written by ${model} and passed the checks; the page itself is copied exactly`);
+  }
+  if (written.refused) {
+    console.error('  Claude declined this request. Rephrase the direction and try again.\n');
+    return false;
+  }
+  let { raw } = written;
+  const { problems, warnings } = written;
+  // The page brought in is a new page: it gets its search text.
+  if (!problems.length) {
+    const searchText = await withSearchText(relFile, raw);
+    raw = searchText.raw;
+    checks.push(...searchText.checks);
+    warnings.push(...searchText.warnings);
   }
   warnings.push(...styled.warnings);
   if (dropped.length) warnings.push(`replaced the old page's content: its body and ${dropped.join(', ')}`);
@@ -2081,7 +2144,7 @@ async function applyStyledConvert(relFile, instruction, original, source, cssFil
     for (const extra of files) console.log(`----- proposed ${extra.file} (not written, ${extra.content.length} characters) -----`);
     if (problems.length) console.log(`\n  problem: ${problems.join('\n  problem: ')}`);
     if (warnings.length) console.log(`\n  warning: ${warnings.join('\n  warning: ')}`);
-    if (proposalOut) writeProposal({ relFile, mode: 'convert', instruction, images: [], raw, problems, warnings, source: styled.file, files, checks, summary: await styledSummary(relFile, instruction, original, raw, styled) });
+    if (proposalOut) writeProposal({ relFile, mode: 'convert', instruction, images: [], raw, problems, warnings, source: styled.file, files, checks, summary: await styledSummary(relFile, instruction, original, raw, styled), model });
     return false;
   }
 
@@ -2245,10 +2308,20 @@ async function applyEdit(relFile, instruction, imageEntries = [], mode = 'edit',
     console.error(`  Claude declined this request. Rephrase the ${{ edit: 'instruction', generate: 'draft', convert: 'direction' }[mode]} and try again.\n`);
     return false;
   }
-  const { raw, problems, warnings, extraFiles } = result;
-  let { checks } = result;
+  const { problems, extraFiles } = result;
+  let { raw, warnings, checks } = result;
   if (fellBack) checks = [...checks, fellBack];
   else if (model !== CLAUDE_MODEL) checks = [...checks, `Written by ${model}, following the site's existing design, and passed the checks`];
+
+  // A page's first real content (its skeleton or draft written, an HTML page brought in) makes it
+  // a new page, which gets its search text. Later edits leave the search text to the owner.
+  const firstWrite = convert || !isDesigned(parseFrontmatter(original).body);
+  if (firstWrite && !problems.length && !extraFiles.length) {
+    const searchText = await withSearchText(relFile, raw);
+    raw = searchText.raw;
+    checks = [...checks, ...searchText.checks];
+    warnings = [...warnings, ...searchText.warnings];
+  }
 
   if (dryRun) {
     console.log(`----- proposed ${relFile} (not written) -----\n`);

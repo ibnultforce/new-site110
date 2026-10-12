@@ -244,7 +244,8 @@ function changedRegion(before, after) {
  * Asks Claude for a few points saying what a change actually did, for the
  * work log: sections added, removed or moved, wording changed, images, fields.
  * `notes` adds facts the diff can't show (for a page imported with its own
- * styles, say). One small request (a few hundred tokens), always on
+ * styles, say). One small request (a few hundred tokens), on the web app's
+ * cheaper TWINSTACK_FAST_MODEL when it sets one, else (or when that fails)
  * SUMMARY_MODEL: listing what a diff changed doesn't need the page writer's
  * model. Returns the points, or [] when there's no key or anything goes wrong:
  * a missing summary never fails the change.
@@ -269,9 +270,22 @@ ${removed || '(nothing)'}
 ----- added -----
 ${added || '(nothing)'}
 ----- end -----`;
-    const reply = await requestClaude({ apiKey, model: SUMMARY_MODEL, systemPrompt, userContent: userPrompt, maxTokens: 2000, effort: 'low' });
-    if (reply.stopReason === 'refusal') return [];
-    return cleanSummary(reply.text.split('\n').filter((line) => /^\s*[-*•]\s+\S/.test(line)));
+    // Room for a thinking model's reasoning as well as the points.
+    const ask = async (model) => {
+      const reply = await requestClaude({ apiKey, model, systemPrompt, userContent: userPrompt, maxTokens: 4000, effort: 'low' });
+      return reply.stopReason === 'refusal' ? [] : cleanSummary(reply.text.split('\n').filter((line) => /^\s*[-*•]\s+\S/.test(line)));
+    };
+    // The web app's cheaper model first, when it set one; SUMMARY_MODEL if that fails or writes nothing.
+    const fast = process.env.TWINSTACK_FAST_MODEL;
+    if (fast && fast !== SUMMARY_MODEL) {
+      try {
+        const points = await ask(fast);
+        if (points.length) return points;
+      } catch (error) {
+        console.log(`  ! ${fast} couldn't write the work-log summary (${error.message.slice(0, 120)}), so ${SUMMARY_MODEL} will`);
+      }
+    }
+    return await ask(SUMMARY_MODEL);
   } catch (error) {
     console.log(`  ! Couldn't write a summary for the work log: ${error.message}`);
     return [];

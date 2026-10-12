@@ -65,6 +65,9 @@ const proposalOut = flag('proposal-out');
 const site = readJson(path.join(ROOT, 'site.config.json'));
 // The Twinstack web app passes the account's chosen model; run by hand, the site's own setting.
 const CLAUDE_MODEL = process.env.TWINSTACK_MODEL || site.automation.model;
+// A cheaper model the web app sets when its proxy routes it (a deepseek-* id): it edits the file
+// first, and CLAUDE_MODEL takes over when its result fails the checks, errors or is declined.
+const FAST_MODEL = process.env.TWINSTACK_FAST_MODEL || '';
 const apiKey = process.env.ANTHROPIC_API_KEY;
 
 /* ------------------------------------------------------------ own helpers */
@@ -85,13 +88,13 @@ function modelOptions(model, effort) {
 }
 
 /** One Messages API call: the reply text and why Claude stopped ("max_tokens" when cut off). */
-async function requestClaude({ systemPrompt, userContent }) {
-  const options = modelOptions(CLAUDE_MODEL, 'medium');
+async function requestClaude({ systemPrompt, userContent, model = CLAUDE_MODEL }) {
+  const options = modelOptions(model, 'medium');
   const response = await fetch(API_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', ...options.headers },
     body: JSON.stringify({
-      model: CLAUDE_MODEL,
+      model,
       max_tokens: MAX_TOKENS,
       system: systemPrompt,
       messages: [{ role: 'user', content: userContent }],
@@ -273,7 +276,7 @@ function summarize(rel, instruction, before, after) {
   return knowledge.summarizeChange({ apiKey, model: CLAUDE_MODEL, command: 'md:edit', file: rel, instruction, before, after });
 }
 
-function writeProposal({ rel, instruction, content, problems, warnings, summary = [] }) {
+function writeProposal({ rel, instruction, content, problems, warnings, summary = [], model = CLAUDE_MODEL }) {
   const target = path.resolve(ROOT, String(proposalOut));
   if (!target.startsWith(ROOT + path.sep)) {
     console.error(`  --proposal-out must be inside the repository, not ${proposalOut}.`);
@@ -288,7 +291,7 @@ function writeProposal({ rel, instruction, content, problems, warnings, summary 
     problems,
     warnings,
     ...(summary.length ? { summary } : {}),
-    model: CLAUDE_MODEL,
+    model,
     createdAt: new Date().toISOString(),
   };
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -310,26 +313,46 @@ async function run({ rel, full }, instruction) {
     return dryRun ? 0 : 1;
   }
 
-  console.log(`  Model: ${CLAUDE_MODEL}\n`);
-  const reply = await requestClaude({ systemPrompt, userContent: userPrompt });
-  if (reply.stopReason === 'refusal') {
+  // One request and the checks on its reply.
+  const attempt = async (useModel) => {
+    const reply = await requestClaude({ systemPrompt, userContent: userPrompt, model: useModel });
+    if (reply.stopReason === 'refusal') return { refused: true };
+    const extracted = extractFile(reply.text);
+    let text = extracted.content.replace(/\r\n/g, '\n');
+    text = `${text.replace(/\n+$/, '')}\n`.replace(/\n/g, eol);
+    const result = { updated: text, ...checks(rel, original, text) };
+    if (reply.stopReason === 'max_tokens') result.problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the file is incomplete`);
+    else if (!extracted.tagged) result.warnings.push("Claude didn't wrap the file in <file> tags; check the start and end for stray commentary");
+    return result;
+  };
+
+  let model = FAST_MODEL && FAST_MODEL !== CLAUDE_MODEL ? FAST_MODEL : CLAUDE_MODEL;
+  console.log(`  Model: ${model}${model === CLAUDE_MODEL ? '' : ` (${CLAUDE_MODEL} takes over if its result fails the checks)`}\n`);
+  let result = null;
+  try {
+    result = await attempt(model);
+  } catch (error) {
+    if (model === CLAUDE_MODEL) throw error;
+    console.log(`  ! ${model} failed: ${error.message.slice(0, 200)}`);
+  }
+  if (model !== CLAUDE_MODEL && (!result || result.refused || result.problems.length)) {
+    for (const problem of result?.problems ?? []) console.log(`  ! ${model}: ${problem}`);
+    console.log(`  Asking ${CLAUDE_MODEL} instead…\n`);
+    model = CLAUDE_MODEL;
+    result = await attempt(model);
+  }
+  if (result.refused) {
     console.error('  Claude declined this request. Rephrase the instruction and try again.\n');
     return 3;
   }
-
-  const extracted = extractFile(reply.text);
-  let updated = extracted.content.replace(/\r\n/g, '\n');
-  updated = `${updated.replace(/\n+$/, '')}\n`.replace(/\n/g, eol);
-  const { problems, warnings } = checks(rel, original, updated);
-  if (reply.stopReason === 'max_tokens') problems.unshift(`Claude's reply was cut off at ${MAX_TOKENS} tokens, so the file is incomplete`);
-  else if (!extracted.tagged) warnings.push("Claude didn't wrap the file in <file> tags; check the start and end for stray commentary");
+  const { updated, problems, warnings } = result;
 
   if (dryRun) {
     console.log(`----- proposed ${rel} (not written) -----\n`);
     console.log(updated);
     if (problems.length) console.log(`  problem: ${problems.join('\n  problem: ')}`);
     if (warnings.length) console.log(`  warning: ${warnings.join('\n  warning: ')}`);
-    if (proposalOut) writeProposal({ rel, instruction, content: updated, problems, warnings, summary: await summarize(rel, instruction, original, updated) });
+    if (proposalOut) writeProposal({ rel, instruction, content: updated, problems, warnings, summary: await summarize(rel, instruction, original, updated), model });
     console.log('');
     return 0;
   }

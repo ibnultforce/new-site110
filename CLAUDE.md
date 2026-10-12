@@ -565,13 +565,33 @@ keep all four in the file.
 
 The model is `TWINSTACK_MODEL` when set (the Twinstack web app passes the account's chosen
 model), otherwise `site.config.json` → `automation.model` (`claude-opus-5-5`); each script
-reads it into `CLAUDE_MODEL`. `edit-page.js` also reads `TWINSTACK_FAST_MODEL` (the web app sets
-it to a cheaper `deepseek-*` model its proxy routes): `pageModel` uses it for an edit or a
-generated page under `content/` with no shown images, when there's a design to follow (the page's
-own for an edit, `isDesigned`, or another page's, `styleReference`), and asks `CLAUDE_MODEL` again
-when its request fails, is declined or fails the checks. The proposal's `model` names the one that
-wrote it, and `checks` says so in words. The first design, conversions, the header and footer and
-templates always use `CLAUDE_MODEL`. Every request
+reads it into `CLAUDE_MODEL`. The scripts also read `TWINSTACK_FAST_MODEL` (the web app sets it
+to a cheaper `deepseek-*` model its proxy routes), and every use of it falls back to
+`CLAUDE_MODEL` when its request fails, is declined or its result fails the checks:
+- `edit-page.js` (`pageModel`): an edit or a generated page under `content/`, when there's a
+  design to follow (the page's own for an edit, `isDesigned`, or another page's,
+  `styleReference`). Photos from the site's files go with it (it reads images); a photo by web
+  address keeps the request on `CLAUDE_MODEL`, which fetches it.
+- `edit-page.js` (`writeFrontmatter`): a `--keep-styles` conversion's title and description (the
+  body is copied by code either way).
+- `scaffold-schedule.js` (`jobModel`): a scheduled page on a site with a designed page, when the
+  job needs no web research (the cheaper model can't search).
+- `edit-md.js`: markdown file edits.
+- `seo.js --claude` (`writeSearchText` in `lib/seo.js`) and new pages' search text (below).
+- The work-log summary (`summarizeChange`, falling back to `SUMMARY_MODEL`).
+
+The proposal's `model` names the model that wrote it, and `checks` says so in plain words. The
+first design, markdown conversions and the header and footer always use `CLAUDE_MODEL`.
+
+**New pages get search text** (`lib/search-text.js`, `addSearchText`): when `edit-page.js` writes a
+page's first real content (its skeleton or draft written for the first time, or an HTML page
+brought in) and when `scaffold-schedule.js` writes a scheduled page, `TWINSTACK_FAST_MODEL` writes
+its `metaTitle`, `metaDescription` and `focusKeyword` with the same prompt and checks as
+`seo.js --claude`, falling back to `CLAUDE_MODEL`. Only missing fields are set (plus a missing or
+placeholder `description`), `noindex` pages get none, and without `TWINSTACK_FAST_MODEL` nothing is
+added. Later edits of a designed page leave the search text alone. A failure is a warning, never a
+failed change. The file must exist when it runs (the site is loaded with the new text in its
+place), so `scaffold-schedule.js` writes the page first. Every request
 goes through `modelOptions` in `lib/claude-writer.js` (copied into `edit-md.js` and
 `seo.js`, which the web app installs without it): an effort level (`high` for page
 writing, `medium` otherwise) on models that take one,
@@ -694,6 +714,9 @@ fields in place, adding new ones after `description` and keeping line
 endings; an empty value removes the field.
 
 `scripts/seo.js` is the command line for all of it (usage in its header).
+The writing rules live in `lib/seo.js` (`searchTextPrompts`, `searchTextIssues`,
+`searchTextAttempts`, `writeSearchText`, which take the caller's own request function), shared
+with new pages' search text (`lib/search-text.js`); `seo.js` keeps its own unstreamed request.
 `--claude` sends Claude the page, the other pages' titles and descriptions,
 and the knowledge files, asks for JSON (`metaTitle`, `metaDescription`,
 `focusKeyword`), measures the reply like the audit does and asks for
@@ -752,8 +775,9 @@ Every Claude request (`page:edit`, `page:generate`, `md:edit`,
   indented `  - ` points (each at most 200 characters) saying what the change
   actually did. Entries from before summaries are just the line.
   - **The points:** `summarizeChange` in `knowledge.js` makes them with one
-    small extra Claude request, always on `SUMMARY_MODEL` (Haiku 4.5, whatever
-    model wrote the change; the Twinstack web app's credits must price it). It sends the request that
+    small extra request on the web app's `TWINSTACK_FAST_MODEL` when it sets one,
+    else (or when that fails) on `SUMMARY_MODEL` (Haiku 4.5), whatever model wrote
+    the change; the Twinstack web app's credits must price both. It sends the request that
     was made and the part of the file that changed: lines shared at the start
     and end are left out, and each side is capped at 9,000 characters.
   - **Conversions that kept the old page's styles** send the frontmatter

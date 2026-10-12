@@ -45,6 +45,7 @@ import { findJobsBlock, sanitizeHandEditedJson } from './lib/schedule-jobs.js';
 import { callClaude, stripFence, resolveImages, stripBrokenLinks, bannedPhraseWarnings } from './lib/claude-writer.js';
 import { knowledgePrompt, recordWork, summarizeChange } from './lib/knowledge.js';
 import { BLANK_LAYOUT_RULES, DESIGN_RULES, layoutShowsTitle, styleReference } from './lib/design-rules.js';
+import { addSearchText } from './lib/search-text.js';
 
 const SCHEDULE_PATH = path.join(ROOT, 'scripts/scaffold-schedule.md');
 
@@ -53,6 +54,8 @@ const apiKey = process.env.ANTHROPIC_API_KEY;
 const site = readJson(path.join(ROOT, 'site.config.json'));
 // The Twinstack web app passes the account's chosen model; run by hand, the site's own setting.
 const CLAUDE_MODEL = process.env.TWINSTACK_MODEL || site.automation.model;
+// A cheaper model the Twinstack web app sets when its proxy routes it (a deepseek-* id): see jobModel.
+const FAST_MODEL = process.env.TWINSTACK_FAST_MODEL || '';
 const model = loadSite({ includeDrafts: true, includeFuture: true });
 const internalUrls = model.all.map((e) => e.url).sort();
 
@@ -337,6 +340,17 @@ ${job.content ? `Source notes/content to work from (use only this, don't go beyo
   return { systemPrompt, userContent };
 }
 
+/**
+ * The model for a scheduled page: the cheaper FAST_MODEL when the site already has a designed page
+ * for it to follow (styleReference), the job needs no web research (FAST_MODEL can't search) and
+ * its photos are the site's own files, sent with the request; otherwise CLAUDE_MODEL.
+ */
+function jobModel(file, research, images) {
+  if (!FAST_MODEL || FAST_MODEL === CLAUDE_MODEL || research) return CLAUDE_MODEL;
+  if (images.some((image) => image.block && image.block.source.type !== 'base64')) return CLAUDE_MODEL;
+  return styleReference(file) ? FAST_MODEL : CLAUDE_MODEL;
+}
+
 function sanityCheck(raw) {
   const problems = [];
   if (!/^---\n/.test(raw)) problems.push('missing opening frontmatter "---"');
@@ -432,28 +446,64 @@ async function runJob(job, stagedUrlMap) {
     return false;
   }
 
-  console.log(`  ... generating ${resolved.file} (model: ${CLAUDE_MODEL}, research: ${research}, images: ${images.length})`);
-  let raw;
+  let model = jobModel(resolved.file, research, images);
+  console.log(`  ... generating ${resolved.file} (model: ${model}, research: ${research}, images: ${images.length})`);
+  // The cheaper model's page is checked like any other; an error or a rejected page is asked again of CLAUDE_MODEL.
+  const write = async (useModel) => {
+    const raw = stripFence(await callClaude({ apiKey, model: useModel, systemPrompt, userContent, research }));
+    return { raw, problems: sanityCheck(raw) };
+  };
+  let written = null;
   try {
-    raw = stripFence(await callClaude({ apiKey, model: CLAUDE_MODEL, systemPrompt, userContent, research }));
+    written = await write(model);
   } catch (error) {
-    console.error(`  ! ${job.title} — ${error.message}`);
-    return false;
+    if (model === CLAUDE_MODEL) {
+      console.error(`  ! ${job.title} — ${error.message}`);
+      return false;
+    }
+    console.log(`  ! ${job.title} — ${model} failed: ${error.message.slice(0, 200)}`);
   }
-  const problems = sanityCheck(raw);
+  if (model !== CLAUDE_MODEL && (!written || written.problems.length)) {
+    for (const problem of written?.problems ?? []) console.log(`  ! ${job.title} — ${model}: ${problem}`);
+    console.log(`  ... asking ${CLAUDE_MODEL} instead`);
+    model = CLAUDE_MODEL;
+    try {
+      written = await write(model);
+    } catch (error) {
+      console.error(`  ! ${job.title} — ${error.message}`);
+      return false;
+    }
+  }
+  const { raw, problems } = written;
   if (problems.length) {
     console.error(`  ! ${job.title} — rejected:\n${problems.map((p) => `      - ${p}`).join('\n')}`);
     return false;
   }
 
-  const { cleaned, removed } = stripBrokenLinks(raw, internalUrls);
-  for (const href of removed) console.log(`  ! ${job.title} — removed a link to a page that doesn't exist: ${href}`);
+  const stripped = stripBrokenLinks(raw, internalUrls);
+  let { cleaned } = stripped;
+  for (const href of stripped.removed) console.log(`  ! ${job.title} — removed a link to a page that doesn't exist: ${href}`);
   for (const warning of bannedPhraseWarnings(cleaned)) console.log(`  ! ${job.title} — ${warning}`);
 
   fs.mkdirSync(path.dirname(target), { recursive: true });
   // Read before writing, so the work-log summary sees what the page was (empty for a new page).
   const before = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
-  fs.writeFileSync(target, cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`);
+  const save = (text) => fs.writeFileSync(target, text.endsWith('\n') ? text : `${text}\n`);
+  save(cleaned);
+
+  // A new page gets its search text (lib/search-text.js), once it's written (the site is read
+  // with it in place); a problem there never stops the page.
+  try {
+    const added = await addSearchText({ relFile: resolved.file, content: cleaned, apiKey, model: CLAUDE_MODEL, fastModel: FAST_MODEL, log: (line) => console.log(`      ${line}`) });
+    if (added && Object.keys(added.fields).length) {
+      cleaned = added.content;
+      save(cleaned);
+      console.log(`  ~ ${job.title} — search text added by ${added.model}${added.fellBack ? ` (${FAST_MODEL} ${added.fellBack})` : ''}`);
+      if (added.issues.length) console.log(`  ! ${job.title} — search text: ${added.issues.join(' ')}`);
+    }
+  } catch (error) {
+    console.log(`  ! ${job.title} — the search text couldn't be written: ${error.message.slice(0, 200)}`);
+  }
   const instruction = `wrote "${job.title}": ${job.description || ''}`;
   const summary = await summarizeChange({ apiKey, model: CLAUDE_MODEL, command: 'scaffold:schedule', file: resolved.file, instruction, before, after: cleaned });
   recordWork({ command: 'scaffold:schedule', file: resolved.file, instruction, summary });

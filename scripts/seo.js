@@ -50,15 +50,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, loadSite } from './lib/content.js';
-import { LIMITS, SEO_FIELDS, auditPages, hasKeyword, pageSeo, seoSettings, setFrontmatterFields, textWidth, truncateToWidth, validCanonical } from './lib/seo.js';
+import { LIMITS, SEO_FIELDS, auditPages, hasKeyword, pageSeo, searchTextPrompts, seoSettings, setFrontmatterFields, textWidth, truncateToWidth, validCanonical, writeSearchText } from './lib/seo.js';
 
 const knowledge = await import('./lib/knowledge.js').catch(() => null);
 
 // Room for the model's thinking as well as the short JSON reply.
 const MAX_TOKENS = 8000;
-const MAX_ATTEMPTS = 3;
-const MAX_PAGE_CHARS = 12000;
-const MAX_OTHER_PAGES = 80;
 
 const argv = process.argv.slice(2);
 const flag = (name) => {
@@ -85,6 +82,9 @@ let model = load();
 const { site } = model;
 // The Twinstack web app passes the account's chosen model; run by hand, the site's own setting.
 const CLAUDE_MODEL = process.env.TWINSTACK_MODEL || site.automation.model;
+// A cheaper model the Twinstack web app sets when its proxy routes it (a deepseek-* id): it writes
+// the search text first, and CLAUDE_MODEL takes over when its result still has issues (suggest).
+const FAST_MODEL = process.env.TWINSTACK_FAST_MODEL || '';
 
 function load() {
   return loadSite({ includeDrafts: true, includeFuture: true });
@@ -377,12 +377,12 @@ function modelOptions(model, effort) {
   return { body, headers };
 }
 
-async function requestClaude({ systemPrompt, messages }) {
-  const options = modelOptions(CLAUDE_MODEL, 'medium');
+async function requestClaude({ systemPrompt, messages, model = CLAUDE_MODEL }) {
+  const options = modelOptions(model, 'medium');
   const response = await fetch(API_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', ...options.headers },
-    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: MAX_TOKENS, system: systemPrompt, messages, ...options.body }),
+    body: JSON.stringify({ model, max_tokens: MAX_TOKENS, system: systemPrompt, messages, ...options.body }),
   });
   if (!response.ok) throw new Error(`Anthropic API ${response.status}: ${(await response.text()).slice(0, 400)}`);
   const payload = await response.json();
@@ -390,118 +390,38 @@ async function requestClaude({ systemPrompt, messages }) {
   return { text, stopReason: payload.stop_reason ?? null };
 }
 
-function buildPrompts(page, direction, keepKeyword) {
-  const seo = pageSeo(page, site);
-  const shortName = site.shortName || site.name;
-  const others = model.all
-    .filter((p) => p.sourceFile !== page.sourceFile && p.noindex !== true)
-    .slice(0, MAX_OTHER_PAGES)
-    .map((p) => {
-      const s = pageSeo(p, site);
-      return `- ${p.url}: "${s.title}" — ${s.description.slice(0, 160)}`;
-    })
-    .join('\n');
-  const source = fs.readFileSync(path.join(ROOT, page.sourceFile), 'utf8').replace(/\r\n/g, '\n');
-  const pageText = source.length > MAX_PAGE_CHARS ? `${source.slice(0, MAX_PAGE_CHARS)}\n[… the rest of the page is left out …]` : source;
-
-  const systemPrompt = `You write the search engine metadata for one page of ${site.name}'s website (${site.description || site.tagline || site.url}).
-
-You write three things:
-- metaTitle: the page's whole <title>, as search results show it. Put the page's main topic first, in the words people search with. End with " | ${shortName}" when that still fits. At most 60 characters (search results cut titles off at about 600 pixels), and at least 30.
-- metaDescription: the snippet under the title. One or two plain sentences, 120 to 155 characters, saying what the page offers and why it's worth the click. Use the focus keyphrase naturally once.
-- focusKeyword: the 2 to 4 word phrase someone would type into a search engine to find this page.
-
-Rules:
-- Only say what the page itself says. Don't invent facts, figures, prices, awards, clients or guarantees.
-- Write in the page's language and spelling. No exclamation marks, no clickbait, no keyword stuffing, no quotation marks around the whole text.
-- Every title and description must differ from the site's other pages, listed below.
-- Reply with one JSON object and nothing else: {"metaTitle": "…", "metaDescription": "…", "focusKeyword": "…"}`;
-
-  const userPrompt = `Page URL: ${page.absoluteUrl}
-File: ${rel(page.sourceFile)}
-
-What search results show now:
-  title: ${seo.title}${page.metaTitle ? '' : '   (the site default, made from the page title)'}
-  description: ${seo.description || '(none)'}${seo.descriptionSource === 'body' ? '   (taken from the start of the page text)' : ''}
-  focus keyphrase: ${seo.keyword || '(none)'}
-${keepKeyword ? `\nKeep the focus keyphrase exactly as it is: "${page.focusKeyword}". Write the title and description for it.\n` : ''}
-The site's other pages (don't repeat their titles or descriptions):
-${others || '(none)'}
-
------ page -----
-${pageText}
------ end page -----
-
-${direction ? `Direction from the author: ${direction}` : 'Write the metadata for this page.'}`;
-
-  return { systemPrompt: knowledge ? knowledge.withKnowledge(systemPrompt) : systemPrompt, userPrompt };
-}
-
-/** The fields in Claude's reply, or null if it isn't the JSON asked for. */
-function parseReply(text) {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end <= start) return null;
-  try {
-    const data = JSON.parse(text.slice(start, end + 1));
-    const clean = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().replace(/^["“](.*)["”]$/, '$1') : '');
-    return { metaTitle: clean(data.metaTitle), metaDescription: clean(data.metaDescription), focusKeyword: clean(data.focusKeyword) };
-  } catch {
-    return null;
-  }
-}
-
-/** What's wrong with a suggestion, as Claude is told it: [] when it's good. */
-function suggestionIssues(fields, page) {
-  if (!fields) return ['The reply wasn\'t the JSON object asked for.'];
-  const issues = [];
-  const titlePx = textWidth(fields.metaTitle, LIMITS.titleSize);
-  const descriptionPx = textWidth(fields.metaDescription, LIMITS.descriptionSize);
-  if (!fields.metaTitle) issues.push('metaTitle is empty.');
-  else if (titlePx > LIMITS.titlePx) issues.push(`metaTitle is ${fields.metaTitle.length} characters (${titlePx}px) and will be cut off: make it shorter than ${LIMITS.titlePx}px, about 55 characters.`);
-  else if (fields.metaTitle.length < LIMITS.titleMinChars) issues.push(`metaTitle is only ${fields.metaTitle.length} characters: use 30 to 60.`);
-  if (!fields.metaDescription) issues.push('metaDescription is empty.');
-  else if (descriptionPx > LIMITS.descriptionPx) issues.push(`metaDescription is ${fields.metaDescription.length} characters (${descriptionPx}px) and will be cut off: keep it to about 150 characters.`);
-  else if (fields.metaDescription.length < 100) issues.push(`metaDescription is only ${fields.metaDescription.length} characters: use 120 to 155.`);
-  if (!fields.focusKeyword) issues.push('focusKeyword is empty.');
-  else if (fields.metaTitle && !hasKeyword(fields.metaTitle, fields.focusKeyword)) issues.push(`The focus keyphrase "${fields.focusKeyword}" isn't in metaTitle.`);
-  const lower = (s) => s.toLowerCase();
-  for (const other of model.all) {
-    if (other.sourceFile === page.sourceFile || other.noindex === true) continue;
-    const s = pageSeo(other, site);
-    if (fields.metaTitle && lower(s.title) === lower(fields.metaTitle)) issues.push(`metaTitle is the same as ${other.url}'s.`);
-    if (fields.metaDescription && lower(s.description) === lower(fields.metaDescription)) issues.push(`metaDescription is the same as ${other.url}'s.`);
-  }
-  return issues;
-}
-
-/** Asks Claude, then asks again to fix what's wrong (up to MAX_ATTEMPTS); the best attempt wins. */
+/**
+ * The page's search text (lib/seo.js writeSearchText): from the web app's cheaper FAST_MODEL when it
+ * set one, else (or when its best attempt still has issues, errors or is declined) from CLAUDE_MODEL.
+ * Resolves to { fields, issues, attempts, model }, or null without a key (the prompts are printed).
+ */
 async function suggest(page, direction) {
   const keepKeyword = Boolean(page.focusKeyword) && !direction;
-  const { systemPrompt, userPrompt } = buildPrompts(page, direction, keepKeyword);
+  const source = fs.readFileSync(path.join(ROOT, page.sourceFile), 'utf8');
+  const prompts = searchTextPrompts({ page, all: model.all, site, source, file: rel(page.sourceFile), direction, keepKeyword });
+  const systemPrompt = knowledge ? knowledge.withKnowledge(prompts.systemPrompt) : prompts.systemPrompt;
   if (!apiKey) {
-    console.log(`\n----- system prompt -----\n${systemPrompt}\n\n----- user prompt -----\n${userPrompt}\n`);
+    console.log(`
+----- system prompt -----
+${systemPrompt}
+
+----- user prompt -----
+${prompts.userPrompt}
+`);
     return null;
   }
-
-  const messages = [{ role: 'user', content: userPrompt }];
-  const attempts = [];
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const reply = await requestClaude({ systemPrompt, messages });
-    if (reply.stopReason === 'refusal') throw new Error('Claude declined this request. Rephrase the direction and try again.');
-    const fields = parseReply(reply.text);
-    if (fields && keepKeyword) fields.focusKeyword = String(page.focusKeyword);
-    const issues = suggestionIssues(fields, page);
-    attempts.push({ fields, issues });
-    console.log(`  attempt ${attempt}: ${issues.length ? `${issues.length} issue${issues.length === 1 ? '' : 's'}` : 'good'}`);
-    if (!issues.length) break;
-    messages.push({ role: 'assistant', content: reply.text }, { role: 'user', content: `Fix these and reply with the corrected JSON object only:\n- ${issues.join('\n- ')}` });
-  }
-  // Fewest issues wins; on a tie, the later (corrected) attempt.
-  const usable = attempts.filter((a) => a.fields);
-  if (!usable.length) return { fields: null, issues: attempts.at(-1).issues, attempts };
-  const best = usable.reduce((a, b) => (b.issues.length <= a.issues.length ? b : a));
-  return { fields: best.fields, issues: best.issues, attempts };
+  return writeSearchText({
+    request: requestClaude,
+    fastModel: FAST_MODEL,
+    model: CLAUDE_MODEL,
+    systemPrompt,
+    userPrompt: prompts.userPrompt,
+    page,
+    all: model.all,
+    site,
+    keepKeyword,
+    log: (line) => console.log(`  ${line}`),
+  });
 }
 
 function summaryOf(fields) {
@@ -512,7 +432,7 @@ function summaryOf(fields) {
   ].filter(Boolean);
 }
 
-function writeProposal({ page, direction, fields, content, problems, warnings, summary }) {
+function writeProposal({ page, direction, fields, content, problems, warnings, summary, model = CLAUDE_MODEL }) {
   const target = insideRepo(proposalOut, '--proposal-out');
   if (!target) return;
   const proposal = {
@@ -525,7 +445,7 @@ function writeProposal({ page, direction, fields, content, problems, warnings, s
     problems,
     warnings,
     ...(summary.length ? { summary } : {}),
-    model: CLAUDE_MODEL,
+    model,
     createdAt: new Date().toISOString(),
   };
   fs.writeFileSync(target, `${JSON.stringify(proposal, null, 2)}\n`);
@@ -552,7 +472,7 @@ async function claudeFor(page, direction, { single }) {
 
   const summary = summaryOf(fields);
   if (dryRun) {
-    if (single && proposalOut) writeProposal({ page, direction, fields, content: updated, problems, warnings, summary });
+    if (single && proposalOut) writeProposal({ page, direction, fields, content: updated, problems, warnings, summary, model: result.model });
     return { code: 0 };
   }
   if (problems.length) {
@@ -576,7 +496,7 @@ async function runClaude(target, direction) {
     console.error('\n  ANTHROPIC_API_KEY is not set. Add it to .env or your environment.\n');
     return 1;
   }
-  console.log(`  Model: ${CLAUDE_MODEL}`);
+  console.log(`  Model: ${FAST_MODEL && FAST_MODEL !== CLAUDE_MODEL ? `${FAST_MODEL}, or ${CLAUDE_MODEL} if its result still has issues` : CLAUDE_MODEL}`);
   if (target) {
     const { code } = await claudeFor(target, direction, { single: true });
     console.log('');

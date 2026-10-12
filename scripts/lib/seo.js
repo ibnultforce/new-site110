@@ -305,6 +305,154 @@ export function auditPages(pages, site, root) {
   return results;
 }
 
+/* ---------------------------------------------------- search text writing */
+
+// A model writes a page's search text (metaTitle, metaDescription, focusKeyword): scripts/seo.js
+// --claude on request, and scripts/lib/search-text.js for every new page. These are the rules both
+// use. `request` is the caller's own Messages API call, so seo.js keeps working with only this file.
+
+export const SEARCH_TEXT = { attempts: 3, pageChars: 12000, otherPages: 80 };
+
+/**
+ * The prompts asking for a page's search text. `page` is the page as the site model has it, `all`
+ * every page (the others' titles and descriptions mustn't be repeated), `source` the page's file.
+ * The caller adds the knowledge section.
+ */
+export function searchTextPrompts({ page, all, site, source, file, direction = '', keepKeyword = false }) {
+  const seo = pageSeo(page, site);
+  const shortName = site.shortName || site.name;
+  const others = all
+    .filter((p) => p.sourceFile !== page.sourceFile && p.noindex !== true)
+    .slice(0, SEARCH_TEXT.otherPages)
+    .map((p) => {
+      const s = pageSeo(p, site);
+      return `- ${p.url}: "${s.title}" — ${s.description.slice(0, 160)}`;
+    })
+    .join('\n');
+  const text = String(source).replace(/\r\n/g, '\n');
+  const pageText = text.length > SEARCH_TEXT.pageChars ? `${text.slice(0, SEARCH_TEXT.pageChars)}\n[… the rest of the page is left out …]` : text;
+
+  const systemPrompt = `You write the search engine metadata for one page of ${site.name}'s website (${site.description || site.tagline || site.url}).
+
+You write three things:
+- metaTitle: the page's whole <title>, as search results show it. Put the page's main topic first, in the words people search with. End with " | ${shortName}" when that still fits. At most 60 characters (search results cut titles off at about 600 pixels), and at least 30.
+- metaDescription: the snippet under the title. One or two plain sentences, 120 to 155 characters, saying what the page offers and why it's worth the click. Use the focus keyphrase naturally once.
+- focusKeyword: the 2 to 4 word phrase someone would type into a search engine to find this page.
+
+Rules:
+- Only say what the page itself says. Don't invent facts, figures, prices, awards, clients or guarantees.
+- Write in the page's language and spelling. No exclamation marks, no clickbait, no keyword stuffing, no quotation marks around the whole text.
+- Every title and description must differ from the site's other pages, listed below.
+- Reply with one JSON object and nothing else: {"metaTitle": "…", "metaDescription": "…", "focusKeyword": "…"}`;
+
+  const userPrompt = `Page URL: ${page.absoluteUrl}
+File: ${file}
+
+What search results show now:
+  title: ${seo.title}${page.metaTitle ? '' : '   (the site default, made from the page title)'}
+  description: ${seo.description || '(none)'}${seo.descriptionSource === 'body' ? '   (taken from the start of the page text)' : ''}
+  focus keyphrase: ${seo.keyword || '(none)'}
+${keepKeyword ? `\nKeep the focus keyphrase exactly as it is: "${page.focusKeyword}". Write the title and description for it.\n` : ''}
+The site's other pages (don't repeat their titles or descriptions):
+${others || '(none)'}
+
+----- page -----
+${pageText}
+----- end page -----
+
+${direction ? `Direction from the author: ${direction}` : 'Write the metadata for this page.'}`;
+
+  return { systemPrompt, userPrompt };
+}
+
+/** The fields in a reply, or null if it isn't the JSON asked for. */
+export function parseSearchText(text) {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  try {
+    const data = JSON.parse(text.slice(start, end + 1));
+    const clean = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().replace(/^["“](.*)["”]$/, '$1') : '');
+    return { metaTitle: clean(data.metaTitle), metaDescription: clean(data.metaDescription), focusKeyword: clean(data.focusKeyword) };
+  } catch {
+    return null;
+  }
+}
+
+/** What's wrong with suggested search text, as the model is told it: [] when it's good. */
+export function searchTextIssues(fields, page, all, site) {
+  if (!fields) return ['The reply wasn\'t the JSON object asked for.'];
+  const issues = [];
+  const titlePx = textWidth(fields.metaTitle, LIMITS.titleSize);
+  const descriptionPx = textWidth(fields.metaDescription, LIMITS.descriptionSize);
+  if (!fields.metaTitle) issues.push('metaTitle is empty.');
+  else if (titlePx > LIMITS.titlePx) issues.push(`metaTitle is ${fields.metaTitle.length} characters (${titlePx}px) and will be cut off: make it shorter than ${LIMITS.titlePx}px, about 55 characters.`);
+  else if (fields.metaTitle.length < LIMITS.titleMinChars) issues.push(`metaTitle is only ${fields.metaTitle.length} characters: use 30 to 60.`);
+  if (!fields.metaDescription) issues.push('metaDescription is empty.');
+  else if (descriptionPx > LIMITS.descriptionPx) issues.push(`metaDescription is ${fields.metaDescription.length} characters (${descriptionPx}px) and will be cut off: keep it to about 150 characters.`);
+  else if (fields.metaDescription.length < 100) issues.push(`metaDescription is only ${fields.metaDescription.length} characters: use 120 to 155.`);
+  if (!fields.focusKeyword) issues.push('focusKeyword is empty.');
+  else if (fields.metaTitle && !hasKeyword(fields.metaTitle, fields.focusKeyword)) issues.push(`The focus keyphrase "${fields.focusKeyword}" isn't in metaTitle.`);
+  const lower = (s) => s.toLowerCase();
+  for (const other of all) {
+    if (other.sourceFile === page.sourceFile || other.noindex === true) continue;
+    const s = pageSeo(other, site);
+    if (fields.metaTitle && lower(s.title) === lower(fields.metaTitle)) issues.push(`metaTitle is the same as ${other.url}'s.`);
+    if (fields.metaDescription && lower(s.description) === lower(fields.metaDescription)) issues.push(`metaDescription is the same as ${other.url}'s.`);
+  }
+  return issues;
+}
+
+/**
+ * Asks `model`, then asks again to fix what's wrong (up to SEARCH_TEXT.attempts); the best attempt
+ * wins: { fields, issues, attempts }. `request({ systemPrompt, messages, model })` resolves to
+ * { text, stopReason }. A refusal throws.
+ */
+export async function searchTextAttempts({ request, model, systemPrompt, userPrompt, page, all, site, keepKeyword = false, log = () => {} }) {
+  const messages = [{ role: 'user', content: userPrompt }];
+  const attempts = [];
+  for (let attempt = 1; attempt <= SEARCH_TEXT.attempts; attempt++) {
+    const reply = await request({ systemPrompt, messages, model });
+    if (reply.stopReason === 'refusal') throw new Error('Claude declined this request. Rephrase the direction and try again.');
+    const fields = parseSearchText(reply.text);
+    if (fields && keepKeyword) fields.focusKeyword = String(page.focusKeyword);
+    const issues = searchTextIssues(fields, page, all, site);
+    attempts.push({ fields, issues });
+    log(`attempt ${attempt}: ${issues.length ? `${issues.length} issue${issues.length === 1 ? '' : 's'}` : 'good'}`);
+    if (!issues.length) break;
+    messages.push({ role: 'assistant', content: reply.text }, { role: 'user', content: `Fix these and reply with the corrected JSON object only:\n- ${issues.join('\n- ')}` });
+  }
+  // Fewest issues wins; on a tie, the later (corrected) attempt.
+  const usable = attempts.filter((a) => a.fields);
+  if (!usable.length) return { fields: null, issues: attempts.at(-1).issues, attempts };
+  const best = usable.reduce((a, b) => (b.issues.length <= a.issues.length ? b : a));
+  return { fields: best.fields, issues: best.issues, attempts };
+}
+
+/**
+ * The search text from the cheaper `fastModel` when there is one, else (or when its best attempt
+ * still has issues, errors or is declined) from `model`. Resolves to searchTextAttempts' result
+ * plus the `model` that wrote it, and `fellBack`: in plain words, why the cheaper model's wasn't
+ * used ("failed", "still had issues"), or ''. The error itself only goes to `log`.
+ */
+export async function writeSearchText({ fastModel = '', model, log = () => {}, ...options }) {
+  let fellBack = '';
+  if (fastModel && fastModel !== model) {
+    let detail = '';
+    try {
+      const result = await searchTextAttempts({ ...options, model: fastModel, log });
+      if (result.fields && !result.issues.length) return { ...result, model: fastModel, fellBack };
+      fellBack = 'still had issues';
+    } catch (error) {
+      fellBack = 'failed';
+      detail = ` (${error.message.slice(0, 160)})`;
+    }
+    log(`${fastModel}'s search text ${fellBack}${detail}, so ${model} writes it instead`);
+  }
+  const result = await searchTextAttempts({ ...options, model, log });
+  return { ...result, model, fellBack };
+}
+
 /* ------------------------------------------------------ frontmatter edits */
 
 // Values the site's frontmatter parser would read as something other than
