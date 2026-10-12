@@ -24,3 +24,8 @@ Written automatically: one line per change Claude made to this site that was kep
   - Changed hero button text from "Visit us" to "Visit the bakery"
 - 2026-10-12 · assistant:update-menu-and-footer · content/data/navigation.json · Renames the "New" menu item in the header to "Contact us".
 - 2026-10-12 · assistant:update-menu-and-footer · content/data/navigation.json · Adds a "Privacy Policy" item to the header menu, linking to the Privacy page.
+- 2026-10-12 · page:convert · content/blog/2026-10-12-saiful.md · converted index.html into the page, keeping its styles
+  - Replaced the page body with the HTML converted from index.html, keeping its original markup and styling.
+  - Removed the skip link, navigation and footer from the imported HTML.
+  - Added the stylesheet field pointing to assets/css/imported/2026-10-12-saiful.css, scoping the imported CSS to this page.
+  - Rewrote frontmatter: set title, description, metaTitle, metaDescription, focusKeyword, hideCta and the imported script list; dropped relatedProduct and excerpt.
