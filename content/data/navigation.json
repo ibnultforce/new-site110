@@ -11,8 +11,12 @@
         "url": "/about.html"
       },
       {
-        "label": "New",
+        "label": "Contact us",
         "url": "/contact.html"
+      },
+      {
+        "label": "Privacy Policy",
+        "url": "/privacy.html"
       }
     ],
     "cta": {

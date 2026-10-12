@@ -22,3 +22,5 @@ Written automatically: one line per change Claude made to this site that was kep
   - Added placeholder note section and closing call-to-action, styled throughout with Harbour Street Bakery's colour palette and Fraunces typography.
 - 2026-10-09 · page:edit · content/pages/home.md · Change the hero button text to 'Visit the bakery'
   - Changed hero button text from "Visit us" to "Visit the bakery"
+- 2026-10-12 · assistant:update-menu-and-footer · content/data/navigation.json · Renames the "New" menu item in the header to "Contact us".
+- 2026-10-12 · assistant:update-menu-and-footer · content/data/navigation.json · Adds a "Privacy Policy" item to the header menu, linking to the Privacy page.
