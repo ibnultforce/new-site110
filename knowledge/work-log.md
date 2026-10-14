@@ -65,3 +65,17 @@ Written automatically: one line per change Claude made to this site that was kep
 - 2026-10-14 · assistant:update-site-details · site.config.json · Changes the site name to "Harbour Street Bakery".
 - 2026-10-14 · assistant:update-logo-settings · site.config.json · Sets the logo name to "Harbour Street Bakery".
 - 2026-10-14 · assistant:update-logo-settings · site.config.json · Uses your Harbour Street Bakery logo as the icon in the browser tab.
+- 2026-10-14 · page:edit · content/pages/contact.md · Write the Contact page for Harbour Street Bakery, an independent sourdough bakery and café in a small coastal town. Replace the template placeholder text. Matc…
+  - Replaced the contact template with a responsive Harbour Street Bakery contact page using cream, brown and terracotta styling with Fraunces headings.
+  - Added a friendly intro, “Get in touch” section, and tappable Phone and Email contact cards using site contact fields.
+  - Added a “Cake orders are welcome” section inviting visitors to discuss celebration cakes.
+- 2026-10-14 · chrome:design · templates/partials/header.html · Redesign the header for mobile (phones and tablets) to feel modern, clean and app-like, keeping the desktop header looking good too. Match the bakery's warm cr…
+  - Restyled the sticky header with warm cream, brown, and terracotta colors, blur, soft shadow, and larger logo treatment.
+  - Added an animated accessible hamburger button that transforms into a close icon on mobile and tablet.
+  - Redesigned the responsive navigation with tap-friendly links, dividers, larger mobile text, and a prominent rounded terracotta CTA.
+  - Retained desktop dropdown navigation while updating its colors, spacing, borders, shadows, and hover states.
+- 2026-10-14 · chrome:design · templates/partials/header.html · Redesign the header from scratch; the previous version was disliked, so make it clearly different and simpler. Mobile-first, modern and minimal. On phones: a c…
+  - Rebuilt the header with a cream mobile bar, constrained logo sizing, and a 44px menu button whose line icon changes to an X.
+  - Added a full-screen mobile navigation overlay with Fraunces links, thin dividers, spacing, and a full-width terracotta CTA at the bottom.
+  - Reworked desktop navigation into a single row with the logo left, links and CTA right, plus subtle underline hover states.
+  - Preserved all existing logo, navigation links, submenu content, labels, and CTA text.
