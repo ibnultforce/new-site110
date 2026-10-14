@@ -2441,17 +2441,13 @@ ${instruction ? `Direction: ${instruction}` : 'Design the header and footer for 
 }
 
 /**
- * The model for a header and footer request. They're small, so FAST_MODEL does them whenever there's
- * a design to follow: a header and footer Claude already designed (both carry DESIGNED_MARK) or a
- * designed page (styleReference). The heavy case, a site with no design yet whose look this sets,
- * stays with CLAUDE_MODEL, which also takes over when FAST_MODEL's result fails the checks, and so
- * does a complex direction (TASK_SIZE: a mega menu, an animated menu, a new look).
+ * The model for a header and footer request: FAST_MODEL (the model the Twinstack web app's admin
+ * chose) whenever it's set, whatever the site's design and however big the direction, because a
+ * header and footer are small and Claude's high-effort design of them cost more than all other page
+ * work together. CLAUDE_MODEL takes over when FAST_MODEL errors, declines or fails the checks.
  */
-function chromeModel(current) {
-  if (!FAST_MODEL || FAST_MODEL === CLAUDE_MODEL) return CLAUDE_MODEL;
-  if (TASK_SIZE === 'complex') return CLAUDE_MODEL;
-  if (current.header.includes(DESIGNED_MARK) && current.footer.includes(DESIGNED_MARK)) return FAST_MODEL;
-  return styleReference() ? FAST_MODEL : CLAUDE_MODEL;
+function chromeModel() {
+  return FAST_MODEL && FAST_MODEL !== CLAUDE_MODEL ? FAST_MODEL : CLAUDE_MODEL;
 }
 
 async function applyChrome(instruction) {
@@ -2480,7 +2476,7 @@ async function applyChrome(instruction) {
 
   // Header and footer work goes to the cheaper model first (chromeModel), as routine page work
   // does (pageModel); whatever it gets wrong is asked again of CLAUDE_MODEL.
-  let model = chromeModel(current);
+  let model = chromeModel();
   console.log(`  Model: ${model}${modelNote(model)}\n`);
   let result = null;
   try {
