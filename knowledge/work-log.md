@@ -57,3 +57,8 @@ Written automatically: one line per change Claude made to this site that was kep
   - Added Fraunces Google Font link and styled entire page with cream background, dark brown headings, terracotta accents and golden details matching homepage design.
   - Created hero section with intro text and placeholder for last-updated date, plus four content sections covering what information is collected, how it is used, how it is kept safe, user choices and co…
   - Built responsive grid layouts with white/70 rounded cards, included contact links (phone tel: link and email mailto: link) and deep brown call-to-action button linking to /contact.html.
+- 2026-10-12 · page:edit · content/pages/about.md · Remove meet the bakers section from about page Change only what this asks for, and keep everything else on the page exactly as it is.
+  - Removed the "Meet the bakers" section (id="bakers") from the About page.
+  - "What we care about" section now runs straight into the closing call to action.
+- 2026-10-14 · assistant:update-menu-and-footer · content/data/navigation.json · Removes the Blog item from the header menu.
+- 2026-10-14 · assistant:create-image · assets/img/drawn/logo.svg · Draws a Harbour Street Bakery logo with a sourdough loaf and a wave, in warm brown and terracotta.

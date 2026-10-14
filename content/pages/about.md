@@ -100,21 +100,6 @@ focusKeyword: Harbour Street Bakery
     </div>
   </section>
 
-  <!-- Meet the bakers -->
-  <section id="bakers" class="scroll-mt-8">
-    <div class="mx-auto grid max-w-7xl gap-10 px-5 pb-16 sm:px-8 md:pb-24 lg:grid-cols-2 lg:items-center lg:gap-16">
-      <div class="flex aspect-4/3 w-full items-center justify-center rounded-3xl border border-dashed border-[#a8482a]/50 bg-white/50 p-6 text-center">
-        <p class="max-w-xs text-sm font-medium text-[#8f3b21]">[Add photo of the team]</p>
-      </div>
-
-      <div>
-        <h2 class="font-['Fraunces',Georgia,serif] text-3xl font-semibold tracking-tight text-[#2b1c14] sm:text-4xl md:text-5xl">Meet the bakers</h2>
-        <p class="mt-4 text-lg leading-relaxed text-[#5a4638]">The small team who bake the bread and keep the café running, day to day.</p>
-        <p class="mt-6 rounded-2xl border border-dashed border-[#a8482a]/60 bg-white/60 px-5 py-4 text-base font-medium text-[#8f3b21]">[Add who the bakers are and how they began]</p>
-      </div>
-    </div>
-  </section>
-
   <!-- Closing call to action -->
   <section class="px-5 pb-16 sm:px-8 md:pb-24">
     <div class="relative mx-auto max-w-7xl overflow-hidden rounded-[2rem] bg-[#3b2418] px-6 py-14 text-center sm:px-12 md:py-20">

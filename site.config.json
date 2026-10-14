@@ -11,7 +11,7 @@
   "themeColor": "#FFFFFF",
   "brand": {
     "logoText": "My Website",
-    "logo": "",
+    "logo": "/assets/img/drawn/logo.svg",
     "logoDark": "",
     "logoMark": "/assets/img/brand/mark-favicon-1x.png",
     "favicon": "",
