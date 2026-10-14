@@ -1,6 +1,6 @@
 {
-  "name": "My Website",
-  "shortName": "My Website",
+  "name": "Harbour Street Bakery",
+  "shortName": "Harbour Street Bakery",
   "url": "https://example.com",
   "tagline": "",
   "footerTagline": "",
@@ -10,7 +10,7 @@
   "foundedYear": "",
   "themeColor": "#FFFFFF",
   "brand": {
-    "logoText": "My Website",
+    "logoText": "Harbour Street Bakery",
     "logo": "/assets/img/drawn/logo.svg",
     "logoDark": "",
     "logoMark": "/assets/img/brand/mark-favicon-1x.png",
