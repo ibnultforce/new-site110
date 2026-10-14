@@ -14,7 +14,7 @@
     "logo": "/assets/img/drawn/logo.svg",
     "logoDark": "",
     "logoMark": "/assets/img/brand/mark-favicon-1x.png",
-    "favicon": "",
+    "favicon": "/assets/img/drawn/logo.svg",
     "defaultOgImage": "/assets/img/og-default.svg"
   },
   "contact": {

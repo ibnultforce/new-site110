@@ -64,3 +64,4 @@ Written automatically: one line per change Claude made to this site that was kep
 - 2026-10-14 · assistant:create-image · assets/img/drawn/logo.svg · Draws a Harbour Street Bakery logo with a sourdough loaf and a wave, in warm brown and terracotta.
 - 2026-10-14 · assistant:update-site-details · site.config.json · Changes the site name to "Harbour Street Bakery".
 - 2026-10-14 · assistant:update-logo-settings · site.config.json · Sets the logo name to "Harbour Street Bakery".
+- 2026-10-14 · assistant:update-logo-settings · site.config.json · Uses your Harbour Street Bakery logo as the icon in the browser tab.
