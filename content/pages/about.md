@@ -19,7 +19,7 @@ focusKeyword: Harbour Street Bakery
     <div class="pointer-events-none absolute -right-28 -top-24 size-96 rounded-full bg-[#f0c987]/40 blur-3xl" aria-hidden="true"></div>
     <div class="pointer-events-none absolute -bottom-40 -left-28 size-96 rounded-full bg-[#c8643b]/15 blur-3xl" aria-hidden="true"></div>
 
-    <div class="relative mx-auto grid max-w-7xl items-center gap-12 px-5 py-16 sm:px-8 md:py-24 lg:grid-cols-[1.15fr_0.85fr]">
+    <div class="relative mx-auto grid max-w-7xl items-center gap-12 px-5 py-16 sm:px-8 md:grid-cols-[1.15fr_0.85fr] md:py-24">
       <div>
         <p class="text-sm font-semibold uppercase tracking-[0.18em] text-[#a8482a]">About Harbour Street Bakery</p>
         <h1 class="mt-4 max-w-2xl font-['Fraunces',Georgia,serif] text-[clamp(2.5rem,7vw,4.75rem)] font-semibold leading-[1.05] tracking-tight text-balance text-[#2b1c14]">A small bakery with a slow way of doing things</h1>
@@ -32,17 +32,8 @@ focusKeyword: Harbour Street Bakery
         </div>
       </div>
 
-      <div class="mx-auto w-full max-w-md lg:max-w-none" aria-hidden="true">
-        <div class="relative aspect-square">
-          <div class="absolute inset-0 rounded-[3rem] bg-linear-to-br from-[#f0c987]/70 via-[#f3e6cc] to-[#dfae5f]/50"></div>
-          <div class="absolute inset-[9%] rounded-[2.5rem] border border-dashed border-[#a8482a]/35"></div>
-          <div class="absolute inset-[24%] flex items-center justify-center rounded-full bg-[#fbf4e6] shadow-lg shadow-[#a8482a]/10 ring-1 ring-[#e6d5b8]">
-            <svg class="size-16 text-[#a8482a] sm:size-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7a5 5 0 1 0 5 5"/><circle cx="12" cy="12" r="0.75" fill="currentColor" stroke="none"/></svg>
-          </div>
-          <div class="absolute left-1/2 top-[8%] size-4 -translate-x-1/2 rounded-full bg-[#a8482a]/40"></div>
-          <div class="absolute bottom-[10%] left-[12%] size-3 rounded-full bg-[#d9a441]/70"></div>
-          <div class="absolute right-[10%] bottom-[18%] size-2.5 rounded-full bg-[#c8643b]/50"></div>
-        </div>
+      <div class="mx-auto w-full max-w-md lg:max-w-none">
+        <img src="/assets/img/drawn/about-hero.svg" alt="Illustration of sourdough loaves on a wooden board beside the sea" class="h-auto w-full max-w-full rounded-[3rem] shadow-lg shadow-[#a8482a]/10">
       </div>
     </div>
   </section>

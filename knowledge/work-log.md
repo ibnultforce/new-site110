@@ -79,3 +79,8 @@ Written automatically: one line per change Claude made to this site that was kep
   - Added a full-screen mobile navigation overlay with Fraunces links, thin dividers, spacing, and a full-width terracotta CTA at the bottom.
   - Reworked desktop navigation into a single row with the logo left, links and CTA right, plus subtle underline hover states.
   - Preserved all existing logo, navigation links, submenu content, labels, and CTA text.
+- 2026-10-14 · assistant:create-image · assets/img/drawn/about-hero.svg · Draws a warm illustration of sourdough loaves on a board with a sea wave, for the About page.
+- 2026-10-14 · page:edit · content/pages/about.md · In the hero section at the top of the About page, replace the decorative right-hand graphic (the rounded beige square with a dashed inner border, a cream circl…
+  - Replaced the decorative hero graphic with `/assets/img/drawn/about-hero.svg`.
+  - Added descriptive alt text, rounded corners, responsive full-width sizing, and automatic height to the hero image.
+  - Changed the hero grid to place the image below text on phones and beside it from medium screens upward.
