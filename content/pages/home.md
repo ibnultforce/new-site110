@@ -29,23 +29,8 @@ description: Under 160 characters, written for search results.
         </div>
       </div>
 
-      <div class="mx-auto w-full max-w-md lg:max-w-none" aria-hidden="true">
-        <div class="relative aspect-square">
-          <div class="absolute inset-0 rounded-full bg-[#f0c987]/50"></div>
-          <div class="absolute inset-[9%] rounded-full border border-dashed border-[#a8482a]/40"></div>
-          <svg class="absolute inset-[14%] drop-shadow-xl" viewBox="0 0 200 200" fill="none">
-            <defs>
-              <radialGradient id="hs-loaf" cx="40%" cy="30%" r="80%">
-                <stop offset="0" stop-color="#e9b45f"/>
-                <stop offset="0.6" stop-color="#c47a35"/>
-                <stop offset="1" stop-color="#8f4a22"/>
-              </radialGradient>
-            </defs>
-            <ellipse cx="100" cy="112" rx="92" ry="68" fill="url(#hs-loaf)"/>
-            <path d="M52 92c14-12 28-18 40-20M82 82c14-12 28-18 40-20M112 92c14-12 28-18 40-20" stroke="#f8e3b4" stroke-width="7" stroke-linecap="round"/>
-            <path d="M40 130c30 18 90 18 120 0" stroke="#8f4a22" stroke-opacity="0.5" stroke-width="3" stroke-linecap="round"/>
-          </svg>
-        </div>
+      <div class="mx-auto w-full max-w-md lg:max-w-none">
+        <img src="/assets/img/generated/home-hero.webp" alt="Freshly baked sourdough loaves on a wooden board" class="h-auto w-full max-w-full rounded-[3rem] shadow-lg shadow-[#a8482a]/10">
       </div>
     </div>
   </section>
@@ -69,7 +54,7 @@ description: Under 160 characters, written for search results.
 
         <article class="group flex flex-col rounded-3xl bg-white/70 p-8 shadow-sm ring-1 ring-[#e6d5b8] transition hover:-translate-y-1 hover:shadow-xl hover:shadow-[#a8482a]/10">
           <div class="flex size-14 items-center justify-center rounded-2xl bg-[#f6dfb0] text-[#8f3b21]">
-            <svg class="size-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16c0-5 3-9 8-9s8 4 8 9"/><path d="M4 16c2 2 5 3 8 3s6-1 8-3"/><path d="M9 8.5c-.5 3-.5 6 0 10M15 8.5c.5 3 .5 6 0 10"/></svg>
+            <svg class="size-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16c0-5 3-9 8-9s8 4 8 9"/><path d="M4 16c2 2 5 3 8 3s6-1 8-3"/><path d="M9 8.5c-.5 3-.5 6 0 10M15 8.5c.5 3-.5 6 0 10"/></svg>
           </div>
           <h3 class="mt-6 font-['Fraunces',Georgia,serif] text-2xl font-semibold text-[#2b1c14]">Pastries</h3>
           <p class="mt-3 leading-relaxed text-[#5a4638]">Buttery, golden and best eaten warm. Something sweet for the morning, alongside a good cup of coffee in the café.</p>

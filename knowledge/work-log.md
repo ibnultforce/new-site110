@@ -84,3 +84,6 @@ Written automatically: one line per change Claude made to this site that was kep
   - Replaced the decorative hero graphic with `/assets/img/drawn/about-hero.svg`.
   - Added descriptive alt text, rounded corners, responsive full-width sizing, and automatic height to the hero image.
   - Changed the hero grid to place the image below text on phones and beside it from medium screens upward.
+- 2026-10-15 · assistant:create-image · assets/img/generated/home-hero.webp · Makes a warm photo-style picture of sourdough loaves for the homepage hero.
+- 2026-10-15 · page:edit · content/pages/home.md · In the hero section at the top of the homepage, replace the decorative right-hand graphic (the drawn loaf inside the beige circle with the dashed ring) with th…
+  - Replaced the hero’s decorative loaf graphic with `/assets/img/generated/home-hero.webp`, using descriptive alt text, responsive width, rounded corners and a soft shadow.
