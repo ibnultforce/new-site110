@@ -4,6 +4,7 @@ slug: home
 url: /
 order: 50
 description: Under 160 characters, written for search results.
+ogImage: /assets/img/generated/home-hero.webp
 ---
 
 <link rel="preconnect" href="https://fonts.googleapis.com">

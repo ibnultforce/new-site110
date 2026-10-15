@@ -63,16 +63,24 @@ order: 30
     </div>
   </section>
 
-  <section class="bg-[#f3e6cc]" aria-labelledby="cake-orders">
-    <div class="mx-auto grid max-w-7xl gap-8 px-5 py-16 sm:px-8 md:grid-cols-[0.75fr_1.25fr] md:items-center md:gap-16 md:py-24">
-      <div>
-        <p class="text-sm font-semibold uppercase tracking-[0.18em] text-[#a8482a]">For special occasions</p>
-        <h2 id="cake-orders" class="mt-3 font-['Fraunces',Georgia,serif] text-3xl font-semibold tracking-tight text-[#2b1c14] sm:text-4xl">Cake orders are welcome</h2>
-      </div>
-      <div class="max-w-2xl text-lg leading-relaxed text-[#4a382c]">
-        <p>Tell us what you are celebrating and we will talk it through with you. Share as much or as little detail as you have, and we can discuss the cake that would suit your occasion.</p>
-      </div>
-    </div>
-  </section>
+  <section id="message" class="scroll-mt-8" aria-labelledby="contact-form-heading">
+    <div class="mx-auto max-w-7xl px-5 pb-16 sm:px-8 md:pb-24">
+      <div class="mx-auto max-w-3xl">
+        <div class="max-w-2xl">
+          <h2 id="contact-form-heading" class="font-['Fraunces',Georgia,serif] text-3xl font-semibold tracking-tight text-[#2b1c14] sm:text-4xl">Send us a message</h2>
+          <p class="mt-4 text-lg leading-relaxed text-[#5a4638]">Tell us a little about what you have in mind and we will get back to you soon.</p>
+        </div>
 
-</div>
+        <div class="mt-10 rounded-3xl bg-white/75 p-6 shadow-sm ring-1 ring-[#e6d5b8] sm:p-8 md:p-10">
+          <form action="http://localhost:4000/api/forms/emHITfEppWPWTmuwtLeIbQ" method="post" accept-charset="UTF-8" class="space-y-6">
+            <div>
+              <label for="contact-name" class="block text-base font-semibold text-[#3b2a20]">Name</label>
+              <input id="contact-name" name="name" type="text" autocomplete="name" maxlength="200" required class="mt-2 block min-h-12 w-full rounded-2xl border border-[#e6d5b8] bg-white px-4 py-3 text-base text-[#3b2a20] shadow-sm transition placeholder:text-[#8a7566] hover:border-[#d9a441] focus:border-[#a8482a] focus:outline-none focus:ring-2 focus:ring-[#a8482a]">
+            </div>
+            <div>
+              <label for="contact-email" class="block text-base font-semibold text-[#3b2a20]">Email</label>
+              <input id="contact-email" name="email" type="email" autocomplete="email" maxlength="320" required class="mt-2 block min-h-12 w-full rounded-2xl border border-[#e6d5b8] bg-white px-4 py-3 text-base text-[#3b2a20] shadow-sm transition placeholder:text-[#8a7566] hover:border-[#d9a441] focus:border-[#a8482a] focus:outline-none focus:ring-2 focus:ring-[#a8482a]">
+            </div>
+            <div>
+              <label for="contact-message" class="block text-base font-semibold text-[#3b2a20]">Message</label>
+              <textarea id="contact-message" name="message" rows="6" maxlength="5000" required class="mt-2 block min-h-40 w-full rounded-2xl border border-[#e6d5b8] bg-white px-4 py-3 text-base text-[#3b2a20] shadow-sm transition placeholder:text-[#8a7566] hover:border-[#d9a441] focus:border-[#a8482a] focus:outline-none focus:ring-2 focus:ring-[#
