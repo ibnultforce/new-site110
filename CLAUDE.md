@@ -22,7 +22,7 @@ site.config.json     brand, contact, collections, deploy, automation settings
 content/data/*.json  navigation, shared facts, FAQ, redirects, blog queue
 content/<type>/*.md  the pages themselves
 templates/layouts/   page.html (blank: shows only the page's body) and imported.html
-templates/partials/  the page shell (base.html), header and footer
+templates/partials/  the page shell (base.html), header, footer and the default 404 page (not-found.html)
 styles/main.css      Tailwind source: the font, the brand accent and a small base
 assets/              compiled CSS, JS, images — copied to dist/assets
 scripts/             build, dev server, checker, scaffolder, blog writer, page editor
@@ -205,6 +205,8 @@ the search index all update on the next build. Nothing else needs touching.
 | The homepage | `content/pages/home.md` (`url: /`). It's an ordinary page with the `page` layout, so its body is what it shows. Older copies have a `home` layout fed by `content/data/home.json` |
 | The site's font and accent colour | `styles/main.css` → `@theme` (`--font-sans`, loaded in `base.html`; `--color-brand`) |
 | Page shell, meta tags, schema | `templates/partials/base.html` (renders `page.seo`), `scripts/lib/seo.js`, `scripts/lib/schema.js` |
+| The "page not found" page | `templates/partials/not-found.html`, which `build.js` builds as `404.html` (GitHub Pages serves it for any missing address). A page of the site's own at `url: /404.html` replaces it. Either way the page gets `notFound: true`; it isn't in the sitemap, the search index or `check.js`'s pages |
+| Visit counting | `site.config.json` → `analytics` (`endpoint`, `key`), written by the Twinstack web app when the owner turns analytics on; `base.html` then loads `assets/js/analytics.js`. Cookieless: it sends the path (without the base path), the outside referrer's host, `utm_source`/`utm_medium`/`utm_campaign`, the screen width and the time zone, plus clicks on phone, email, WhatsApp and outside links. It sends nothing on localhost, with Do Not Track or Global Privacy Control, or after `?twinstack-analytics=off`. The web app detects support by `site.analytics.key` in `base.html` and reads the event fields (`t`, `p`, `nf`, `r`, `us`, `um`, `uc`, `w`, `tz`, `k`, `h`), so keep them in step |
 | Title format, X handle, search console verification | `site.config.json` → `seo` (see "Search engine optimisation" below) |
 | A page's structure | The page's own body. Old copies' per-type layouts in `templates/layouts/` |
 

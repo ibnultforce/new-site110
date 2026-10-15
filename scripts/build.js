@@ -40,6 +40,7 @@ if (!outDir.startsWith(ROOT + path.sep)) {
 // Absolute URLs (canonical, og:*, JSON-LD, sitemap, RSS) are built from
 // site.url instead, which already includes that path.
 const base = basePath();
+const NOT_FOUND_URL = '/404.html';
 
 function withBase(html) {
   if (!base) return html;
@@ -162,7 +163,14 @@ function build() {
     Object.entries(collections).map(([name, entries]) => [name, entries.map(pick)]),
   );
 
-  for (const entry of all) {
+  // GitHub Pages serves 404.html for any address the site doesn't have. A site may write its own
+  // page at /404.html; otherwise this one is built, from templates/partials/not-found.html. It's
+  // marked notFound either way, so base.html can tell the visit counter (assets/js/analytics.js).
+  // It isn't one of the site's pages: not in the sitemap, the search index or check.js.
+  const ownNotFound = all.find((entry) => entry.url === NOT_FOUND_URL);
+  if (ownNotFound) ownNotFound.notFound = true;
+
+  function render(entry) {
     // A page converted with its own styles (edit-page.js --keep-styles) replaces the page
     // completely: its HTML shows edge to edge, without its layout's hero, FAQ, call to action
     // or related items, whatever layout it has.
@@ -236,6 +244,11 @@ function build() {
 
     const file = outputPathFor(entry.url);
     write(file, withBase(html));
+    return file;
+  }
+
+  for (const entry of all) {
+    const file = render(entry);
     written.push({ url: entry.url, file, collection: entry.collection });
 
     if (entry.noindex !== true) {
@@ -248,6 +261,20 @@ function build() {
         text: excerpt(entry.body, 400),
       });
     }
+  }
+
+  if (!ownNotFound && engine.templates['not-found']) {
+    render({
+      title: 'Page not found',
+      url: NOT_FOUND_URL,
+      absoluteUrl: `${site.url.replace(/\/$/, '')}${NOT_FOUND_URL}`,
+      layout: 'page',
+      collection: 'pages',
+      sourceFile: 'templates/partials/not-found.html',
+      body: '{{> not-found }}',
+      noindex: true,
+      notFound: true,
+    });
   }
 
   /* ---------------------------------------------------------------- feeds */

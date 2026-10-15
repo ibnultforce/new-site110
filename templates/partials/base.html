@@ -51,5 +51,6 @@
 {{# if page.scripts }}<script>window.TwinstackImported && TwinstackImported.ready()</script>
 {{# each page.scripts }}{{# unless head }}<script src="{{ src }}"{{# if module }} type="module"{{/ if }}{{# if nomodule }} nomodule{{/ if }}{{# if defer }} defer{{/ if }}{{# if async }} async{{/ if }}></script>{{/ unless }}{{/ each }}{{/ if }}
 <script src="/assets/js/site.js" defer></script>
+{{# if site.analytics.key }}<script src="/assets/js/analytics.js" data-endpoint="{{ site.analytics.endpoint }}" data-key="{{ site.analytics.key }}"{{# if page.notFound }} data-not-found{{/ if }} defer></script>{{/ if }}
 </body>
 </html>
