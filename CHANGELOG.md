@@ -6,6 +6,23 @@ Tracking changes committed since 2026-10-08. Regenerated on every
 readable trail, not a rollback tool: to actually undo something, use `git
 log` and `git revert`/`git checkout` as normal.
 
+## 2026-10-15 — Update Contact and My Website and 1 more
+
+by Ibnul Ashir
+
+- modified: `content/pages/contact.md`
+- modified: `content/pages/home.md`
+- modified: `knowledge/work-log.md`
+
+## 2026-10-15 — Update CHANGELOG.md and My Website and 2 more
+
+by Ibnul Ashir
+
+- modified: `CHANGELOG.md`
+- added: `assets/img/generated/home-hero.webp`
+- modified: `content/pages/home.md`
+- modified: `knowledge/work-log.md`
+
 ## 2026-10-14 — Update About and What Claude remembers and 1 more
 
 by Ibnul Ashir

@@ -104,5 +104,9 @@
   },
   "updates": {
     "migrations": []
+  },
+  "analytics": {
+    "endpoint": "https://random-words.trycloudflare.com/api/collect",
+    "key": "p6Wwl5gN3JvleZLVIv9FSJPD"
   }
 }
