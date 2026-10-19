@@ -106,7 +106,7 @@
     "migrations": []
   },
   "analytics": {
-    "endpoint": "https://oxygen-his-exist-noon.trycloudflare.com/api/collect",
+    "endpoint": "https://edmonton-spencer-board-composed.trycloudflare.com/api/collect",
     "key": "p6Wwl5gN3JvleZLVIv9FSJPD"
   }
 }
