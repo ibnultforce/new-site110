@@ -103,3 +103,7 @@ Written automatically: one line per change Claude made to this site that was kep
   - Darkened the footer CTA strip background and softened its cream border.
   - Added a subtle shadow to the footer CTA strip.
   - Reduced footer section and bottom divider opacity from cream/25 to cream/22.
+- 2026-10-20 · page:edit · content/pages/contact.md · The Contact page is cut off inside the "Send us a message" form: the Message <textarea> (id contact-message) is never closed and everything after it is missing…
+  - Closed the Message textarea and added the missing submit button to the contact form.
+  - Closed the form, wrapper divs, and form section after the message field.
+  - Added the “Cake orders are welcome” section with copy and a button linking to #message.

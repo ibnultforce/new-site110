@@ -83,4 +83,29 @@ order: 30
             </div>
             <div>
               <label for="contact-message" class="block text-base font-semibold text-[#3b2a20]">Message</label>
-              <textarea id="contact-message" name="message" rows="6" maxlength="5000" required class="mt-2 block min-h-40 w-full rounded-2xl border border-[#e6d5b8] bg-white px-4 py-3 text-base text-[#3b2a20] shadow-sm transition placeholder:text-[#8a7566] hover:border-[#d9a441] focus:border-[#a8482a] focus:outline-none focus:ring-2 focus:ring-[#
+              <textarea id="contact-message" name="message" rows="6" maxlength="5000" required class="mt-2 block min-h-40 w-full rounded-2xl border border-[#e6d5b8] bg-white px-4 py-3 text-base text-[#3b2a20] shadow-sm transition placeholder:text-[#8a7566] hover:border-[#d9a441] focus:border-[#a8482a] focus:outline-none focus:ring-2 focus:ring-[#a8482a]"></textarea>
+            </div>
+            <button type="submit" class="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[#a8482a] px-7 py-3 text-base font-semibold text-[#fbf4e6] shadow-lg shadow-[#a8482a]/25 transition hover:-translate-y-0.5 hover:bg-[#8f3b21] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a8482a]">
+              Send message
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="cake-orders" class="bg-[#f3e6cc]">
+    <div class="mx-auto max-w-7xl px-5 py-16 sm:px-8 md:py-24">
+      <div class="grid gap-8 rounded-[2rem] bg-white/65 p-7 shadow-sm ring-1 ring-[#e6d5b8] sm:p-10 md:grid-cols-[1.15fr_0.85fr] md:items-center">
+        <div>
+          <h2 id="cake-orders" class="font-['Fraunces',Georgia,serif] text-3xl font-semibold tracking-tight text-[#2b1c14] sm:text-4xl">Cake orders are welcome</h2>
+          <p class="mt-4 text-lg leading-relaxed text-[#5a4638]">If you are planning a celebration, tell us what you have in mind. Please include the date and the number of guests in your message so we can talk through the order with you.</p>
+        </div>
+        <div class="md:text-right">
+          <a href="#message" class="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[#a8482a] px-7 py-3 text-base font-semibold text-[#fbf4e6] shadow-lg shadow-[#a8482a]/25 transition hover:-translate-y-0.5 hover:bg-[#8f3b21] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a8482a] sm:w-auto">Start a cake message</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
