@@ -1,13 +1,13 @@
-<footer data-designed="claude" class="site-footer relative isolate overflow-hidden bg-[#a8482a] pb-7 pt-14 text-base text-[#fbf4e6] sm:pt-16">
-  <div aria-hidden="true" class="pointer-events-none absolute -right-32 -top-32 -z-10 size-96 rounded-full bg-radial from-[#f0c987]/30 to-transparent"></div>
-  <div aria-hidden="true" class="pointer-events-none absolute -bottom-40 -left-24 -z-10 size-80 rounded-full bg-radial from-[#8f3b21]/35 to-transparent"></div>
+<footer data-designed="claude" class="site-footer relative isolate overflow-hidden bg-[#3b2a20] pb-7 pt-14 text-base text-[#fbf4e6] sm:pt-16">
+  <div aria-hidden="true" class="pointer-events-none absolute -right-32 -top-32 -z-10 size-96 rounded-full bg-radial from-[#c2623f]/22 to-transparent"></div>
+  <div aria-hidden="true" class="pointer-events-none absolute -bottom-40 -left-24 -z-10 size-80 rounded-full bg-radial from-[#fbf4e6]/10 to-transparent"></div>
 
   <div class="mx-auto w-full max-w-7xl px-5 sm:px-8">
-    <div class="mb-12 flex flex-col gap-5 rounded-3xl border border-[#fbf4e6]/30 bg-[#8f3b21]/35 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8">
+    <div class="mb-12 flex flex-col gap-5 rounded-3xl border border-[#fbf4e6]/18 bg-[#2b1c14]/55 p-6 shadow-lg shadow-[#1f130d]/20 sm:flex-row sm:items-center sm:justify-between sm:p-8">
       <div>
         <p class="font-['Fraunces',Georgia,serif] text-2xl font-semibold text-[#fbf4e6]">A little something for the table</p>
       </div>
-      {{# if nav.header.cta }}<a href="{{ nav.header.cta.url }}" class="inline-flex min-h-12 items-center justify-center rounded-full bg-[#fbf4e6] px-7 py-3 text-base font-semibold text-[#8f3b21] shadow-md shadow-[#3b2418]/15 transition hover:-translate-y-0.5 hover:bg-[#f0c987] hover:shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fbf4e6]">{{ nav.header.cta.label }}</a>{{/ if }}
+      {{# if nav.header.cta }}<a href="{{ nav.header.cta.url }}" class="inline-flex min-h-12 items-center justify-center rounded-full bg-[#a8482a] px-7 py-3 text-base font-semibold text-white shadow-md shadow-[#1f130d]/25 transition hover:-translate-y-0.5 hover:bg-[#8f3b21] hover:shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fbf4e6]">{{ nav.header.cta.label }}</a>{{/ if }}
     </div>
 
     <div class="grid gap-12 md:grid-cols-[1.2fr_0.8fr_0.8fr] lg:gap-20">
@@ -16,20 +16,20 @@
           {{# if nav.appearance.footer.logoOnDark }}<img src="{{ nav.appearance.footer.logoOnDark }}" alt="{{ site.brand.logoText }}" class="block h-10 w-auto max-w-[min(15rem,100%)] object-contain">{{ else }}<img src="{{ site.brand.logoMark }}" alt="" width="28" height="28" class="size-7 shrink-0 rounded-lg"> <span class="ml-2 text-base font-semibold tracking-tight">{{ site.brand.logoText }}</span>{{/ if }}
         </a>
 
-        {{# if nav.appearance.footer.showTagline }}{{# if site.footerTagline }}<p class="mt-5 max-w-[34ch] leading-relaxed text-[#fbf4e6]">{{ site.footerTagline }}</p>{{/ if }}{{/ if }}
+        {{# if nav.appearance.footer.showTagline }}{{# if site.footerTagline }}<p class="mt-5 max-w-[34ch] leading-relaxed text-[#f7ead7]">{{ site.footerTagline }}</p>{{/ if }}{{/ if }}
 
         {{# if nav.appearance.footer.showContact }}
         <div class="mt-5 flex flex-col items-start">
-          {{# if site.contact.email }}<a href="mailto:{{ site.contact.email }}" class="inline-flex min-h-11 max-w-full items-center wrap-break-word font-medium text-[#fbf4e6] underline decoration-[#fbf4e6]/50 underline-offset-4 transition hover:text-[#f0c987] hover:decoration-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fbf4e6]">{{ site.contact.email }}</a>{{/ if }}
-          {{# if site.contact.phone }}<a href="tel:{{ site.contact.phone }}" class="inline-flex min-h-11 items-center font-medium text-[#fbf4e6] underline decoration-[#fbf4e6]/50 underline-offset-4 transition hover:text-[#f0c987] hover:decoration-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fbf4e6]">{{ site.contact.phone }}</a>{{/ if }}
-          {{# if site.contact.whatsappUrl }}<a href="{{ site.contact.whatsappUrl }}" class="inline-flex min-h-11 items-center font-medium text-[#fbf4e6] underline decoration-[#fbf4e6]/50 underline-offset-4 transition hover:text-[#f0c987] hover:decoration-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fbf4e6]">{{ site.contact.whatsapp }}</a>{{/ if }}
+          {{# if site.contact.email }}<a href="mailto:{{ site.contact.email }}" class="inline-flex min-h-11 max-w-full items-center wrap-break-word font-medium text-[#fbf4e6] underline decoration-[#c2623f] decoration-2 underline-offset-4 transition hover:text-[#f0c987] hover:decoration-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fbf4e6]">{{ site.contact.email }}</a>{{/ if }}
+          {{# if site.contact.phone }}<a href="tel:{{ site.contact.phone }}" class="inline-flex min-h-11 items-center font-medium text-[#fbf4e6] underline decoration-[#c2623f] decoration-2 underline-offset-4 transition hover:text-[#f0c987] hover:decoration-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fbf4e6]">{{ site.contact.phone }}</a>{{/ if }}
+          {{# if site.contact.whatsappUrl }}<a href="{{ site.contact.whatsappUrl }}" class="inline-flex min-h-11 items-center font-medium text-[#fbf4e6] underline decoration-[#c2623f] decoration-2 underline-offset-4 transition hover:text-[#f0c987] hover:decoration-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fbf4e6]">{{ site.contact.whatsapp }}</a>{{/ if }}
         </div>
         {{/ if }}
       </div>
 
       {{# each nav.footer }}
       <div>
-        <h2 class="border-b border-[#fbf4e6]/35 pb-3 text-xs font-bold uppercase tracking-[0.14em] text-[#f0c987]">{{ title }}</h2>
+        <h2 class="border-b border-[#fbf4e6]/22 pb-3 text-xs font-bold uppercase tracking-[0.14em] text-[#f0c987]">{{ title }}</h2>
         <ul class="mt-2">
           {{# each links }}
           <li><a href="{{ url }}"{{# if external }} target="_blank" rel="noopener"{{/ if }} class="inline-flex min-h-11 items-center font-medium text-[#fbf4e6] no-underline transition hover:translate-x-0.5 hover:text-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fbf4e6]">{{ label }}</a></li>
@@ -39,10 +39,10 @@
       {{/ each }}
     </div>
 
-    <div class="mt-12 flex flex-col gap-4 border-t border-[#fbf4e6]/35 pt-6 text-sm sm:mt-14 sm:flex-row sm:items-center sm:justify-between">
-      <p class="text-[#fbf4e6]">© {{ site.year }} {{# if nav.appearance.footer.copyright }}{{ nav.appearance.footer.copyright }}{{ else }}{{ site.name }}. All rights reserved.{{/ if }}</p>
+    <div class="mt-12 flex flex-col gap-4 border-t border-[#fbf4e6]/22 pt-6 text-sm sm:mt-14 sm:flex-row sm:items-center sm:justify-between">
+      <p class="text-[#f7ead7]">© {{ site.year }} {{# if nav.appearance.footer.copyright }}{{ nav.appearance.footer.copyright }}{{ else }}{{ site.name }}. All rights reserved.{{/ if }}</p>
       <ul class="flex flex-wrap gap-x-5 gap-y-1">
-        {{# each nav.legal }}<li><a href="{{ url }}" class="inline-flex min-h-11 items-center font-medium text-[#fbf4e6] no-underline underline decoration-[#f0c987] decoration-2 underline-offset-4 transition hover:text-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fbf4e6]">{{ label }}</a></li>{{/ each }}
+        {{# each nav.legal }}<li><a href="{{ url }}" class="inline-flex min-h-11 items-center font-medium text-[#fbf4e6] no-underline underline decoration-[#c2623f] decoration-2 underline-offset-4 transition hover:text-[#f0c987] hover:decoration-[#f0c987] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#fbf4e6]">{{ label }}</a></li>{{/ each }}
       </ul>
     </div>
   </div>

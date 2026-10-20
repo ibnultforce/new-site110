@@ -106,7 +106,7 @@
     "migrations": []
   },
   "analytics": {
-    "endpoint": "https://edmonton-spencer-board-composed.trycloudflare.com/api/collect",
+    "endpoint": "https://delivered-bubble-fruits-differences.trycloudflare.com/api/collect",
     "key": "p6Wwl5gN3JvleZLVIv9FSJPD"
   }
 }

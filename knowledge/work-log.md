@@ -93,3 +93,13 @@ Written automatically: one line per change Claude made to this site that was kep
   - Added a terracotta CTA strip with a cream button using the header CTA label and URL.
   - Lightened footer dividers, contact underlines, focus outlines, and decorative radial accents.
   - Preserved footer links, content, layout, and responsive grid structure.
+- 2026-10-20 · chrome:design · templates/partials/header.html · Change only the footer's colour scheme; leave the header, footer links, content and layout as they are. Use a deep, warm espresso-brown background (around #3b2…
+  - Changed footer background from terracotta to deep espresso brown with cream text.
+  - Updated footer glow accents, CTA strip panel, and divider borders to softer warm tones.
+  - Restyled CTA button and link underlines with terracotta accents and hover states.
+  - Adjusted tagline and copyright text to a lighter cream shade for contrast.
+- 2026-10-20 · chrome:design · templates/partials/header.html · Change only the footer's colour scheme; leave the header, footer links, content and layout as they are. Use a deep, warm espresso-brown background (around #3b2…
+  - Adjusted footer radial accents to terracotta and cream tints.
+  - Darkened the footer CTA strip background and softened its cream border.
+  - Added a subtle shadow to the footer CTA strip.
+  - Reduced footer section and bottom divider opacity from cream/25 to cream/22.
