@@ -90,7 +90,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, readJson, loadSite } from './lib/content.js';
+import { ROOT, readJson, loadSite, unclosedRawText } from './lib/content.js';
 import { parseFrontmatter, renderMarkdown } from './lib/markdown.js';
 import { TemplateEngine } from './lib/template.js';
 import { renderCheck, scriptCheck } from './lib/render-check.js';
@@ -1770,7 +1770,12 @@ async function askClaude(buildPrompts, images, { cache = false, model = CLAUDE_M
 function balanceProblems(text) {
   const openers = (text.match(/\{\{#\s*(if|unless|each)/g) || []).length;
   const closers = (text.match(/\{\{\/\s*(if|unless|each)/g) || []).length;
-  return openers === closers ? [] : [`unbalanced template blocks (${openers} opened, ${closers} closed)`];
+  const problems = openers === closers ? [] : [`unbalanced template blocks (${openers} opened, ${closers} closed)`];
+  // A reply that stopped early without saying so often ends inside a tag: browsers would hide
+  // everything after it, the page's end and the site's footer included.
+  const unclosed = unclosedRawText(text, { markdown: true });
+  if (unclosed) problems.push(`the page looks cut off: ${unclosed} is never closed, so everything after it would be hidden`);
+  return problems;
 }
 
 function partialProblems(text) {

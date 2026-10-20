@@ -36,7 +36,7 @@ Only \`site\` and \`nav\` are in scope (no \`page\`). Never hard-code a menu lin
 - nav.legal: the legal links (label, url).
 - nav.appearance.header.logoOnLight / logoOnDark and nav.appearance.footer.logoOnLight / logoOnDark: the uploaded logo for a light or a dark background, empty when there is none. Use the one for the background you design.
 - nav.appearance.footer.showTagline, showContact (whether the owner wants those shown) and copyright (their own copyright text, may be empty).
-- site.brand.logoText (the name shown beside the icon), site.brand.logoMark (the square icon), site.name, site.footerTagline, site.foundedYear, site.contact.email / phone / whatsapp / whatsappUrl, site.year.
+- site.brand.logoText (the name shown beside the icon), site.brand.logoMark (the square icon), site.name, site.footerTagline, site.foundedYear, site.contact.email / phone / whatsapp / whatsappUrl / address / hours (opening hours, as the owner wrote them), site.year.
 
 THE HEADER MUST
 - Be one <header data-designed="claude" …> element (put the attribute on it exactly like that). It shows on every page, so keep it compact; sticky is your choice.

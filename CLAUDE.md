@@ -115,8 +115,11 @@ page; both always run over the whole site.
    files. `CNAME` is only written when `site.url`'s host is `deploy.cname`, so a
    copy published on github.io never claims the domain.
 6. `scripts/check.js` reloads the same content model, walks the built `dist/`
-   tree, and errors on duplicate URLs or internal links/images pointing at
-   files that don't exist; it warns on SEO problems (the errors and warnings
+   tree, and errors on duplicate URLs, internal links/images pointing at
+   files that don't exist, and pages cut off by a `<textarea>`, `<script>`,
+   `<style>`, `<title>` or comment that's never closed (`unclosedRawText` in
+   `lib/content.js`: browsers hide everything after it; `edit-page.js` refuses a
+   reply like that too, and the Twinstack web app reads the error line); it warns on SEO problems (the errors and warnings
    of `lib/seo.js`'s audit), missing `alt` text and thin body content.
 
 `node scripts/build.js --proposal=<file.json> --out=<dir>` builds the whole site as it would be with a
@@ -196,7 +199,7 @@ the search index all update on the next build. Nothing else needs touching.
 
 | Change | File |
 | --- | --- |
-| Phone, email, booking link | `site.config.json` → `contact` |
+| Phone, email, address, opening hours, booking link | `site.config.json` → `contact` (`phone`, `address` and `hours` are free text; the footer shows them with the email when `showContact` is on, and `lib/schema.js` adds the phone and address to the organisation's structured data). Sites made before they existed get them, empty, from migration `0001-contact-phone-address-hours`, because the web app only saves fields a file already has |
 | Logo, icon, favicon, name | `site.config.json` → `brand`: `logo` (the full logo, in place of the icon and name in the header), `logoDark` (the dark footer's; empty uses `logo`), `logoMark` (the square icon beside `logoText` when there's no logo), `favicon` (empty uses `logoMark`). Empty means not set. The web app uploads them to `assets/img/brand/` |
 | Nav or footer structure | `content/data/navigation.json`. A page can also add itself: frontmatter `menu: header`, `footer` or `both` (optional `menuLabel`, `menuOrder`) puts it after the listed links, once (`selfListed` in `lib/content.js`); footer ones go into the column marked `"auto": true`, else the first, else a new "Pages" column. Drafts never do |
 | Header and footer look | `content/data/navigation.json` → `appearance`: `header` `theme` (`light`/`dark`/`brand`), `layout` (`right`/`center`/`left`: where the menu sits), `sticky`, `style` (`bar`/`floating`: a rounded bar with space around it), `transparent` (see-through over the top of the page until scrolled), `shrink` (lower once scrolled); `footer` `theme` (`dark`/`light`/`brand`), `layout` (`columns`/`centered`/`minimal`), `showTagline`, `showContact`, `showSocial` (icons for `site.config.json` → `social`, as `nav.social`), `cta` (`{ title, text, label, url }`: a call-to-action strip above the footer, shown with a label and a link that resolves), `copyright` (after `© <year>`; empty = site name, "All rights reserved."). `navAppearance` in `lib/content.js` checks and defaults them into `nav.appearance` (on `nav`, not `data`, because `scaffold-schedule.js` renders the partials with only `site` and `nav`), adding `tone` and the `logo` for that background. `header.html`/`footer.html` put `theme`/`tone`/`layout`/`style` in data attributes and style them with `group-data-[…]/header` variants, since templates can't compare values; `assets/js/site.js` keeps the header's `data-scrolled` up to date for `transparent` and `shrink`. The Twinstack web app detects support by `nav.appearance` in both partials and `navAppearance` in `content.js`, and the newer options by `nav.appearance.header.style` in `header.html` and `nav.appearance.footer.layout` in `footer.html`; its installer copies both partials, `content.js` and `site.js` |

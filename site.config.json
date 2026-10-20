@@ -19,6 +19,9 @@
   },
   "contact": {
     "email": "test@gmail.co",
+    "phone": "",
+    "address": "",
+    "hours": "",
     "whatsapp": "",
     "whatsappUrl": "",
     "bookingUrl": "",
@@ -103,7 +106,9 @@
     "defaultAuthor": ""
   },
   "updates": {
-    "migrations": []
+    "migrations": [
+      "0001-contact-phone-address-hours"
+    ]
   },
   "analytics": {
     "endpoint": "https://delivered-bubble-fruits-differences.trycloudflare.com/api/collect",

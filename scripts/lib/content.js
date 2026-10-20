@@ -78,6 +78,31 @@ export function applyUrlPattern(pattern, slug) {
  * `aria-current` and highlighting. Shared by the main build and anything else
  * that renders the header/footer partials outside the normal page pipeline
  * (e.g. scaffold-schedule.js chroming a standalone static page). */
+// Elements whose missing end tag swallows the rest of the page: browsers read everything after an
+// unclosed <textarea>, <title>, <script>, <style> or comment as its content, so the page looks cut
+// off from there (and a tag cut off before its ">" counts too, since its "<" starts one of these).
+const RAW_TEXT_OPEN = /<(script|style|textarea|title)\b(?:[^>]*>|[^>]*$)|<!--/gi;
+
+/**
+ * The first element in `html` that's never closed and so hides everything after it ("<textarea>",
+ * "a comment"), or null. Content scanning skips each element's contents the way browsers do, so
+ * "<script>" inside a script's string doesn't count. `markdown` leaves out fenced and inline code,
+ * where tags are text to show, not markup.
+ */
+export function unclosedRawText(html, { markdown = false } = {}) {
+  let text = String(html);
+  if (markdown) text = text.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, '').replace(/`[^`\n]*`/g, '');
+  const lower = text.toLowerCase();
+  RAW_TEXT_OPEN.lastIndex = 0;
+  for (let match = RAW_TEXT_OPEN.exec(text); match; match = RAW_TEXT_OPEN.exec(text)) {
+    const end = match[0] === '<!--' ? '-->' : `</${match[1].toLowerCase()}`;
+    const close = lower.indexOf(end, match.index + match[0].length);
+    if (close === -1) return match[0] === '<!--' ? 'a comment (<!--)' : `<${match[1].toLowerCase()}>`;
+    RAW_TEXT_OPEN.lastIndex = close + end.length;
+  }
+  return null;
+}
+
 export function markActive(items, currentUrl) {
   return items.map((item) => {
     const children = item.children ? markActive(item.children, currentUrl) : [];

@@ -7,6 +7,8 @@ export function buildJsonLd({ site, page, faqItems = [] }) {
     name: site.name,
     url: site.url,
     ...(site.contact?.email && { email: site.contact.email }),
+    ...(site.contact?.phone && { telephone: site.contact.phone }),
+    ...(site.contact?.address && { address: site.contact.address }),
     ...(site.foundedYear && { foundingDate: String(site.foundedYear) }),
     ...(site.description && { description: site.description }),
     sameAs: Object.values(site.social || {}).filter(Boolean),
